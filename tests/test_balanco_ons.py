@@ -6,7 +6,9 @@ from io import BytesIO
 import pandas as pd
 
 from balanco_ons import (
+    CSV_EXPORT_COLUMNS,
     WorkbookError,
+    build_csv_export,
     extract_year_from_filename,
     process_uploads,
 )
@@ -109,6 +111,30 @@ class ProcessingTests(unittest.TestCase):
         self.assertEqual(result.hourly_rows, 1)
         self.assertEqual(result.monthly.iloc[0]["Carga (MWmed)"], 200.0)
         self.assertTrue(any("sobreposto" in warning for warning in result.warnings))
+
+    def test_csv_export_contains_only_requested_columns(self) -> None:
+        table = pd.DataFrame(
+            {
+                "Ano": [2026],
+                "Mês nº": [1],
+                "Mês": ["Janeiro"],
+                "Período": ["2026-01"],
+                "Horas com dados": [744],
+                "Cobertura (%)": [100.0],
+                "Geração hidráulica (MWmed)": [50_000.0],
+                "Geração térmica (MWmed)": [9_000.0],
+                "Geração eólica (MWmed)": [11_000.0],
+                "Geração solar (MWmed)": [12_000.0],
+                "Carga (MWmed)": [82_000.0],
+                "Intercâmbio (MWmed)": [0.0],
+            }
+        )
+
+        exported = build_csv_export(table)
+
+        self.assertEqual(exported.columns.tolist(), CSV_EXPORT_COLUMNS)
+        self.assertNotIn("Cobertura (%)", exported.columns)
+        self.assertNotIn("Período", exported.columns)
 
 
 if __name__ == "__main__":

@@ -35,6 +35,12 @@ METRIC_LABELS = {
     "val_intercambio": "Intercâmbio (MWmed)",
 }
 
+CSV_EXPORT_COLUMNS = [
+    "Ano",
+    "Mês",
+    *METRIC_LABELS.values(),
+]
+
 COLUMN_ALIASES = {
     "id_subsistema": {
         "id_subsistema",
@@ -79,6 +85,15 @@ class ProcessingResult:
     errors: list[str]
     metric_columns: list[str]
     hourly_rows: int
+
+
+def build_csv_export(data: pd.DataFrame) -> pd.DataFrame:
+    """Retorna somente as colunas finais solicitadas para o CSV."""
+    export = data.copy()
+    for column in CSV_EXPORT_COLUMNS:
+        if column not in export.columns:
+            export[column] = pd.NA
+    return export[CSV_EXPORT_COLUMNS]
 
 
 def extract_year_from_filename(filename: str) -> int:

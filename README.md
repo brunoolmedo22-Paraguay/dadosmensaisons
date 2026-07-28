@@ -14,7 +14,8 @@ médias mensais do Sistema Interligado Nacional (SIN).
 - informa horas disponíveis, horas esperadas e cobertura de cada mês;
 - evita contagem dupla quando dois arquivos possuem o mesmo horário;
 - compara os anos em gráfico;
-- exporta a tabela filtrada para CSV compatível com Excel em português.
+- exporta para CSV somente ano, mês, gerações, carga e intercâmbio, em formato
+  compatível com Excel em português.
 
 O arquivo deve conter um único ano no nome:
 

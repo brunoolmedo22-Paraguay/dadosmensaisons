@@ -5,7 +5,7 @@ from typing import Sequence
 import pandas as pd
 import streamlit as st
 
-from balanco_ons import ProcessingResult, process_uploads
+from balanco_ons import ProcessingResult, build_csv_export, process_uploads
 
 
 st.set_page_config(
@@ -130,7 +130,7 @@ def process_cached(
 
 
 def csv_bytes(data: pd.DataFrame) -> bytes:
-    return data.to_csv(
+    return build_csv_export(data).to_csv(
         index=False,
         sep=";",
         decimal=",",
@@ -290,14 +290,14 @@ display_table(filtered, metric_columns)
 export_years = "-".join(map(str, selected_years))
 st.download_button(
     "Baixar tabela consolidada em CSV",
-    data=csv_bytes(filtered.drop(columns=["Mês nº"])),
+    data=csv_bytes(filtered),
     file_name=f"balanco_mensal_sin_{export_years}.csv",
     mime="text/csv",
     use_container_width=True,
 )
 st.caption(
-    "CSV em UTF-8, separado por ponto e vírgula e com vírgula decimal, "
-    "pronto para abrir no Excel em português."
+    "O CSV contém somente ano, mês, gerações, carga e intercâmbio. "
+    "Formato UTF-8, com ponto e vírgula e vírgula decimal."
 )
 
 left, right = st.columns([1.55, 1])
