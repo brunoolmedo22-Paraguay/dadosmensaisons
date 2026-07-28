@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
 from io import BytesIO
+from pathlib import Path
 
 import pandas as pd
 
@@ -10,6 +12,8 @@ from balanco_ons import (
     WorkbookError,
     build_csv_export,
     extract_year_from_filename,
+    process_files,
+    process_paths,
     process_uploads,
 )
 
@@ -135,6 +139,73 @@ class ProcessingTests(unittest.TestCase):
         self.assertEqual(exported.columns.tolist(), CSV_EXPORT_COLUMNS)
         self.assertNotIn("Cobertura (%)", exported.columns)
         self.assertNotIn("Período", exported.columns)
+
+
+class FormatTests(unittest.TestCase):
+    def sample_frame(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "id_subsistema": ["SIN", "SIN", "N"],
+                "din_instante": [
+                    "2024-01-01 00:00:00",
+                    "2024-01-01 01:00:00",
+                    "2024-01-01 00:00:00",
+                ],
+                "val_gerhidraulica": [100.0, 200.0, 999.0],
+                "val_carga": [500.0, 700.0, 999.0],
+            }
+        )
+
+    def test_reads_parquet(self) -> None:
+        buffer = BytesIO()
+        self.sample_frame().to_parquet(buffer, index=False)
+        result = process_files(
+            [("BALANCO_ENERGIA_SUBSISTEMA_2024.parquet", buffer.getvalue())]
+        )
+
+        self.assertFalse(result.errors)
+        self.assertEqual(result.hourly_rows, 2)
+        self.assertEqual(
+            result.monthly.iloc[0]["Geração hidráulica (MWmed)"], 150.0
+        )
+
+    def test_reads_semicolon_csv(self) -> None:
+        content = self.sample_frame().to_csv(index=False, sep=";").encode("utf-8")
+        result = process_files(
+            [("BALANCO_ENERGIA_SUBSISTEMA_2024.csv", content)]
+        )
+
+        self.assertFalse(result.errors)
+        self.assertEqual(result.monthly.iloc[0]["Carga (MWmed)"], 600.0)
+
+    def test_reads_comma_csv_with_decimal_comma(self) -> None:
+        content = (
+            "id_subsistema,din_instante,val_carga\n"
+            "SIN,2024-01-01 00:00:00,\"1.500,50\"\n"
+        ).encode("utf-8")
+        result = process_files(
+            [("BALANCO_ENERGIA_SUBSISTEMA_2024.csv", content)]
+        )
+
+        self.assertFalse(result.errors)
+        self.assertAlmostEqual(result.monthly.iloc[0]["Carga (MWmed)"], 1500.5)
+
+    def test_rejects_unsupported_extension(self) -> None:
+        result = process_files([("BALANCO_2024.json", b"{}")])
+        self.assertTrue(result.errors)
+        self.assertIn("extensão não suportada", result.errors[0])
+
+    def test_process_paths_reads_from_disk(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "BALANCO_ENERGIA_SUBSISTEMA_2024.csv"
+            path.write_text(
+                self.sample_frame().to_csv(index=False, sep=";"),
+                encoding="utf-8",
+            )
+            result = process_paths([path])
+
+        self.assertFalse(result.errors)
+        self.assertEqual(result.hourly_rows, 2)
 
 
 if __name__ == "__main__":

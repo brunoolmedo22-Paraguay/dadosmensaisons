@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Sequence
 
 import pandas as pd
 import streamlit as st
 
-from balanco_ons import ProcessingResult, build_csv_export, process_uploads
+import ons_download
+from balanco_ons import ProcessingResult, build_csv_export, process_files, process_paths
 
 
 st.set_page_config(
@@ -126,7 +128,27 @@ st.markdown(
 def process_cached(
     payload: tuple[tuple[str, bytes], ...],
 ) -> ProcessingResult:
-    return process_uploads(payload)
+    return process_files(payload)
+
+
+@st.cache_data(show_spinner=False)
+def process_paths_cached(
+    signature: tuple[tuple[str, float, int], ...],
+) -> ProcessingResult:
+    return process_paths(Path(path) for path, _, _ in signature)
+
+
+@st.cache_data(show_spinner=False, ttl=6 * 3600)
+def load_available_years() -> tuple[list[int], str | None]:
+    return ons_download.available_years()
+
+
+def path_signature(
+    paths: Sequence[Path],
+) -> tuple[tuple[str, float, int], ...]:
+    return tuple(
+        (str(path), path.stat().st_mtime, path.stat().st_size) for path in paths
+    )
 
 
 def csv_bytes(data: pd.DataFrame) -> bytes:
@@ -167,18 +189,20 @@ def render_empty_state() -> None:
     cards = [
         (
             "1",
-            "Carregue os arquivos",
-            "Envie um ou vários Excel do ONS. Cada nome deve conter o ano dos dados.",
+            "Escolha o intervalo",
+            "Defina o ano inicial e o ano final da análise na barra lateral.",
         ),
         (
             "2",
-            "Consolidação automática",
-            "A aplicação seleciona somente o SIN e calcula as médias de cada mês.",
+            "Baixe os dados abertos",
+            "A aplicação consulta o portal do ONS e grava os arquivos anuais em "
+            "uma pasta temporária.",
         ),
         (
             "3",
-            "Baixe o resultado",
-            "A tabela consolidada fica pronta em CSV compatível com Excel em português.",
+            "Consolidação automática",
+            "Somente o SIN é selecionado, as médias mensais são calculadas e o "
+            "CSV fica pronto para download.",
         ),
     ]
     for column, (number, title, body) in zip(columns, cards):
@@ -194,7 +218,8 @@ def render_empty_state() -> None:
                 unsafe_allow_html=True,
             )
     st.info(
-        "Exemplo de nome válido: **BALANCO_ENERGIA_SUBSISTEMA_2026.xlsx**"
+        "Fonte: **Balanço de Energia nos Subsistemas** do Portal de Dados "
+        f"Abertos do ONS ({ons_download.PORTAL_URL})."
     )
 
 
@@ -204,28 +229,96 @@ st.markdown(
         <div class="hero-kicker">ONS · Consolidação histórica</div>
         <h1 class="hero-title">Balanço Mensal do SIN</h1>
         <p class="hero-copy">
-            Transforme arquivos horários de balanço energético por subsistema
-            em uma única série de médias mensais do Sistema Interligado Nacional.
+            Escolha o intervalo de anos, baixe os dados abertos do ONS e receba
+            uma única série de médias mensais do Sistema Interligado Nacional.
         </p>
     </section>
     """,
     unsafe_allow_html=True,
 )
 
+st.session_state.setdefault("ons_paths", [])
+st.session_state.setdefault("ons_messages", {"warnings": [], "errors": []})
+
 with st.sidebar:
-    st.header("Arquivos de entrada")
-    uploads = st.file_uploader(
-        "Excel do ONS",
-        type=["xlsx", "xlsm", "xls"],
-        accept_multiple_files=True,
-        help=(
-            "O ano é lido do nome de cada arquivo. Você pode selecionar "
-            "vários anos de uma vez."
-        ),
-    )
+    st.header("Dados abertos do ONS")
+
+    with st.spinner("Consultando o portal do ONS..."):
+        catalog_years, catalog_note = load_available_years()
+    first_year = min(catalog_years)
+    last_year = max(catalog_years)
+
+    if last_year > first_year:
+        start_year, end_year = st.slider(
+            "Intervalo de anos",
+            min_value=first_year,
+            max_value=last_year,
+            value=(max(first_year, last_year - 3), last_year),
+            step=1,
+            help="Anos publicados pelo ONS para o balanço por subsistema.",
+        )
+    else:
+        start_year = end_year = first_year
+        st.info(f"Somente {first_year} está disponível no portal.")
+
+    selected_range = list(range(start_year, end_year + 1))
     st.caption(
-        "Os arquivos são processados em memória e não são gravados pela aplicação."
+        f"{len(selected_range)} ano(s) selecionado(s): "
+        f"{start_year} a {end_year}."
     )
+    if catalog_note:
+        st.warning(
+            "Não foi possível ler a lista oficial de anos; a faixa exibida é a "
+            "padrão. Detalhe: " + catalog_note
+        )
+
+    with st.expander("Opções de download"):
+        preferred_format = st.radio(
+            "Formato preferido",
+            options=["parquet", "csv"],
+            index=0,
+            horizontal=True,
+            help=(
+                "O Parquet é menor e mais rápido. O CSV é usado automaticamente "
+                "quando o Parquet do ano não existe."
+            ),
+        )
+        force_download = st.checkbox(
+            "Baixar novamente mesmo se o arquivo já existir",
+            value=False,
+        )
+
+    download_clicked = st.button(
+        "Baixar dados abertos",
+        type="primary",
+        use_container_width=True,
+        icon="⬇️",
+    )
+
+    stored = ons_download.cached_files()
+    if stored:
+        if st.button(
+            f"Limpar pasta temporária ({len(stored)} arquivo(s))",
+            use_container_width=True,
+        ):
+            removed = ons_download.clear_cache()
+            st.session_state["ons_paths"] = []
+            st.session_state["ons_messages"] = {"warnings": [], "errors": []}
+            process_paths_cached.clear()
+            st.toast(f"{removed} arquivo(s) removido(s).")
+            st.rerun()
+
+    st.caption(f"Pasta temporária: `{ons_download.cache_dir()}`")
+
+    st.divider()
+    with st.expander("Alternativa: enviar arquivos manualmente"):
+        uploads = st.file_uploader(
+            "Arquivos do ONS",
+            type=["parquet", "csv", "xlsx", "xlsm", "xls"],
+            accept_multiple_files=True,
+            help="Use apenas se o portal estiver fora do ar. O ano é lido do nome.",
+        )
+
     st.divider()
     st.markdown("**Regra de cálculo**")
     st.caption(
@@ -233,13 +326,59 @@ with st.sidebar:
         "Agregação: média aritmética das observações de cada mês."
     )
 
-if not uploads:
+if download_clicked:
+    order = [
+        preferred_format,
+        *[item for item in ons_download.DEFAULT_FORMATS if item != preferred_format],
+    ]
+    progress_bar = st.progress(0.0, text="Iniciando o download...")
+
+    def on_progress(update: ons_download.DownloadProgress) -> None:
+        progress_bar.progress(update.fraction, text=update.message)
+
+    report = ons_download.download_years(
+        years=selected_range,
+        preferred_formats=order,
+        force=force_download,
+        progress=on_progress,
+    )
+    progress_bar.empty()
+
+    st.session_state["ons_paths"] = [str(item.path) for item in report.files]
+    st.session_state["ons_messages"] = {
+        "warnings": report.warnings,
+        "errors": report.errors,
+    }
+    if report.files:
+        total = sum(item.size_bytes for item in report.files)
+        reused = sum(1 for item in report.files if item.from_cache)
+        st.success(
+            f"{len(report.files)} arquivo(s) prontos "
+            f"({total / (1024 * 1024):.1f} MB, {reused} reaproveitado(s) da "
+            "pasta temporária)."
+        )
+
+for message in st.session_state["ons_messages"]["errors"]:
+    st.error(f"Download: {message}")
+for message in st.session_state["ons_messages"]["warnings"]:
+    st.warning(f"Download: {message}")
+
+downloaded_paths = [
+    path for path in map(Path, st.session_state["ons_paths"]) if path.exists()
+]
+
+if not downloaded_paths and not uploads:
     render_empty_state()
     st.stop()
 
-payload = tuple((uploaded.name, uploaded.getvalue()) for uploaded in uploads)
 with st.spinner("Lendo e consolidando os arquivos..."):
-    result = process_cached(payload)
+    if uploads:
+        payload = tuple(
+            (path.name, path.read_bytes()) for path in downloaded_paths
+        ) + tuple((uploaded.name, uploaded.getvalue()) for uploaded in uploads)
+        result = process_cached(payload)
+    else:
+        result = process_paths_cached(path_signature(downloaded_paths))
 
 for message in result.errors:
     st.error(message)

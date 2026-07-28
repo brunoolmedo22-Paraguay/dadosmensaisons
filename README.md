@@ -1,12 +1,33 @@
 # Balanço Mensal do SIN
 
-Aplicação Streamlit para transformar arquivos horários de **Balanço de Energia
-por Subsistema**, disponibilizados pelo ONS, em uma tabela histórica com as
-médias mensais do Sistema Interligado Nacional (SIN).
+Aplicação Streamlit que baixa sozinha os arquivos horários de **Balanço de
+Energia por Subsistema** do Portal de Dados Abertos do ONS e os transforma em
+uma tabela histórica com as médias mensais do Sistema Interligado Nacional
+(SIN).
+
+## Origem dos dados
+
+<https://dados.ons.org.br/dataset/balanco-energia-subsistema>
+
+A lista de arquivos é obtida pela API CKAN do portal:
+
+```text
+https://dados.ons.org.br/api/3/action/package_show?id=balanco-energia-subsistema
+```
+
+Quando a API está indisponível, a aplicação recorre ao padrão público de
+endereços do ONS:
+
+```text
+https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/balanco_energia_subsistema_ho/BALANCO_ENERGIA_SUBSISTEMA_<ANO>.parquet
+```
 
 ## O que a aplicação faz
 
-- recebe vários arquivos Excel ao mesmo tempo;
+- baixa os arquivos anuais do intervalo escolhido para uma pasta temporária;
+- prefere Parquet e cai para CSV automaticamente quando o ano não tem Parquet;
+- reaproveita o que já está na pasta temporária, sem baixar de novo;
+- aceita também o envio manual de arquivos, como alternativa;
 - lê o ano diretamente do nome de cada arquivo;
 - valida o ano do nome contra as datas internas;
 - seleciona apenas os registros identificados como `SIN`;
@@ -17,15 +38,30 @@ médias mensais do Sistema Interligado Nacional (SIN).
 - exporta para CSV somente ano, mês, gerações, carga e intercâmbio, em formato
   compatível com Excel em português.
 
-O arquivo deve conter um único ano no nome:
+## Como usar
+
+1. escolha o **intervalo de anos** na barra lateral, por exemplo 2022 a 2026;
+2. clique em **Baixar dados abertos**;
+3. acompanhe a barra de progresso; ao final a tabela mensal aparece pronta.
+
+Os arquivos ficam em `<pasta temporária do sistema>/ons_balanco_energia_subsistema`.
+No Streamlit Community Cloud essa pasta é apagada a cada reinício do contêiner,
+o que é esperado: basta clicar em baixar novamente.
+
+O nome de cada arquivo deve conter um único ano:
 
 ```text
-BALANCO_ENERGIA_SUBSISTEMA_2026.xlsx
+BALANCO_ENERGIA_SUBSISTEMA_2026.parquet
 ```
 
-## Estrutura esperada do Excel
+## Formatos aceitos
 
-A aplicação procura automaticamente a planilha que contenha:
+`.parquet`, `.csv`, `.xlsx`, `.xlsm` e `.xls`. O separador do CSV é detectado
+automaticamente, assim como vírgula ou ponto como separador decimal.
+
+## Estrutura esperada do arquivo
+
+A aplicação procura automaticamente a tabela que contenha:
 
 - `din_instante`;
 - `id_subsistema` ou `nom_subsistema`;
@@ -75,8 +111,8 @@ streamlit run app.py
 5. Em **Advanced settings**, mantenha ou selecione Python 3.12.
 6. Clique em **Deploy**.
 
-Não é necessário enviar os Excel ao GitHub. Eles são carregados pelo usuário
-diretamente na interface e processados em memória.
+Não é necessário enviar arquivos de dados ao GitHub. Eles são baixados do
+portal do ONS em tempo de execução.
 
 ## Cálculo
 

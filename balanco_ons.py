@@ -4,9 +4,9 @@ import calendar
 import re
 import unicodedata
 from dataclasses import dataclass
-from io import BytesIO
+from io import BytesIO, StringIO
 from pathlib import Path
-from typing import Sequence
+from typing import Iterable, Sequence
 
 import pandas as pd
 
@@ -62,6 +62,12 @@ COLUMN_ALIASES = {
     },
 }
 
+EXCEL_EXTENSIONS = {".xlsx", ".xlsm", ".xls"}
+CSV_EXTENSIONS = {".csv", ".txt"}
+PARQUET_EXTENSIONS = {".parquet", ".pq"}
+READABLE_EXTENSIONS = EXCEL_EXTENSIONS | CSV_EXTENSIONS | PARQUET_EXTENSIONS
+SEPARATOR_CANDIDATES = (";", ",", "\t", "|")
+
 REPORT_COLUMNS = [
     "Arquivo",
     "Ano",
@@ -113,7 +119,7 @@ def extract_year_from_filename(filename: str) -> int:
     return years.pop()
 
 
-def process_uploads(files: Sequence[tuple[str, bytes]]) -> ProcessingResult:
+def process_files(files: Sequence[tuple[str, bytes]]) -> ProcessingResult:
     """Processa vários arquivos e consolida as médias mensais do SIN."""
     frames: list[pd.DataFrame] = []
     reports: list[dict[str, object]] = []
@@ -188,23 +194,17 @@ def process_uploads(files: Sequence[tuple[str, bytes]]) -> ProcessingResult:
     )
 
 
+#: Nome antigo mantido para compatibilidade com o envio manual de arquivos.
+process_uploads = process_files
+
+
 def _load_single_workbook(
     filename: str,
     content: bytes,
     file_order: int,
 ) -> tuple[pd.DataFrame, dict[str, object], list[str]]:
     year = extract_year_from_filename(filename)
-    suffix = Path(filename).suffix.lower()
-    engine = "xlrd" if suffix == ".xls" else "openpyxl"
-
-    try:
-        workbook = pd.read_excel(
-            BytesIO(content),
-            sheet_name=None,
-            engine=engine,
-        )
-    except Exception as exc:
-        raise WorkbookError(f"não foi possível abrir o Excel ({exc})") from exc
+    workbook = read_tables(filename, content)
 
     eligible_sheets: list[pd.DataFrame] = []
     for sheet_name, raw in workbook.items():
@@ -215,7 +215,7 @@ def _load_single_workbook(
 
     if not eligible_sheets:
         raise WorkbookError(
-            "nenhuma planilha contém data, identificação do subsistema e "
+            "nenhuma tabela contém data, identificação do subsistema e "
             "colunas de valores iniciadas por 'val_'"
         )
 
@@ -300,6 +300,75 @@ def _load_single_workbook(
         "Situação": "Processado",
     }
     return sin_for_year, report, file_warnings
+
+
+def read_tables(filename: str, content: bytes) -> dict[str, pd.DataFrame]:
+    """Lê Excel, CSV ou Parquet e devolve as tabelas encontradas."""
+    suffix = Path(filename).suffix.lower()
+
+    if suffix in EXCEL_EXTENSIONS:
+        engine = "xlrd" if suffix == ".xls" else "openpyxl"
+        try:
+            return pd.read_excel(BytesIO(content), sheet_name=None, engine=engine)
+        except Exception as exc:
+            raise WorkbookError(f"não foi possível abrir o Excel ({exc})") from exc
+
+    if suffix in PARQUET_EXTENSIONS:
+        try:
+            return {"parquet": pd.read_parquet(BytesIO(content))}
+        except Exception as exc:
+            raise WorkbookError(f"não foi possível abrir o Parquet ({exc})") from exc
+
+    if suffix in CSV_EXTENSIONS:
+        try:
+            return {"csv": _read_csv_bytes(content)}
+        except Exception as exc:
+            raise WorkbookError(f"não foi possível abrir o CSV ({exc})") from exc
+
+    raise WorkbookError(
+        "extensão não suportada; use .parquet, .csv, .xlsx, .xlsm ou .xls"
+    )
+
+
+def _read_csv_bytes(content: bytes) -> pd.DataFrame:
+    text = _decode_bytes(content)
+    separator = _detect_separator(text)
+    return pd.read_csv(StringIO(text), sep=separator, low_memory=False)
+
+
+def _decode_bytes(content: bytes) -> str:
+    for encoding in ("utf-8-sig", "utf-8", "latin-1"):
+        try:
+            return content.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return content.decode("utf-8", errors="replace")
+
+
+def _detect_separator(text: str) -> str:
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        counts = {
+            candidate: line.count(candidate) for candidate in SEPARATOR_CANDIDATES
+        }
+        best = max(counts, key=lambda candidate: counts[candidate])
+        return best if counts[best] > 0 else ";"
+    return ";"
+
+
+def load_payload_from_paths(paths: Iterable[str | Path]) -> list[tuple[str, bytes]]:
+    """Transforma caminhos de arquivos no mesmo formato aceito por process_files."""
+    payload: list[tuple[str, bytes]] = []
+    for item in paths:
+        path = Path(item)
+        payload.append((path.name, path.read_bytes()))
+    return payload
+
+
+def process_paths(paths: Iterable[str | Path]) -> ProcessingResult:
+    """Processa arquivos já gravados em disco, como os baixados do ONS."""
+    return process_files(load_payload_from_paths(paths))
 
 
 def _prepare_sheet(raw: pd.DataFrame) -> pd.DataFrame | None:
