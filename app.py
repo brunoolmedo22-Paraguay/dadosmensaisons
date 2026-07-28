@@ -20,7 +20,7 @@ st.set_page_config(
     page_title="Balanço Mensal do SIN",
     page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 st.markdown(
@@ -124,6 +124,96 @@ st.markdown(
             color: var(--muted);
             font-size: .83rem;
         }
+        .panel-kicker {
+            color: var(--brand);
+            font-size: .72rem;
+            font-weight: 750;
+            letter-spacing: .11em;
+            text-transform: uppercase;
+            margin-bottom: .2rem;
+        }
+        .st-key-download_panel {
+            background: rgba(255, 255, 255, .92);
+            border-color: var(--line) !important;
+            border-radius: 18px;
+            min-height: 20.25rem;
+            padding: 1.15rem 1.25rem;
+            box-shadow: 0 8px 24px rgba(20, 61, 64, .06);
+        }
+        .process-card {
+            min-height: 20.25rem;
+            padding: 1.35rem 1.45rem;
+            border: 1px solid rgba(0, 107, 112, .20);
+            border-radius: 18px;
+            background:
+                linear-gradient(145deg, rgba(226, 246, 244, .92), rgba(255, 255, 255, .96));
+            box-shadow: 0 8px 24px rgba(20, 61, 64, .06);
+        }
+        .process-card h2 {
+            color: var(--ink);
+            font-size: 1.35rem;
+            letter-spacing: -.02em;
+            margin: .1rem 0 .35rem;
+        }
+        .process-lead {
+            color: var(--muted);
+            font-size: .9rem;
+            margin: 0 0 1rem;
+        }
+        .process-step {
+            display: grid;
+            grid-template-columns: 2rem 1fr;
+            gap: .7rem;
+            align-items: start;
+            margin-top: .8rem;
+        }
+        .process-number {
+            display: grid;
+            place-items: center;
+            width: 1.85rem;
+            height: 1.85rem;
+            color: white;
+            background: var(--brand);
+            border-radius: 50%;
+            font-size: .78rem;
+            font-weight: 750;
+        }
+        .process-step strong {
+            display: block;
+            color: var(--ink);
+            font-size: .9rem;
+            margin-bottom: .08rem;
+        }
+        .process-step p {
+            color: var(--muted);
+            font-size: .82rem;
+            line-height: 1.35;
+            margin: 0;
+        }
+        .process-foot {
+            color: var(--brand-dark);
+            font-size: .78rem;
+            font-weight: 650;
+            margin: 1rem 0 0;
+        }
+        .result-placeholder {
+            margin-top: 1.25rem;
+            padding: 1.7rem;
+            color: var(--muted);
+            text-align: center;
+            border: 1px dashed #bfd1d0;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, .58);
+        }
+        .result-placeholder h3 {
+            color: var(--ink);
+            font-size: 1rem;
+            margin: 0 0 .25rem;
+        }
+        .result-placeholder p {
+            font-size: .88rem;
+            margin: 0;
+        }
     </style>
     """,
     unsafe_allow_html=True,
@@ -163,40 +253,17 @@ def display_table(data: pd.DataFrame, metrics: Sequence[str]) -> None:
 
 
 def render_empty_state() -> None:
-    st.subheader("Como funciona")
-    columns = st.columns(3)
-    cards = [
-        (
-            "1",
-            "Selecione o período",
-            "Escolha o primeiro e o último ano que deseja analisar.",
-        ),
-        (
-            "2",
-            "Baixe os dados",
-            "A aplicação localiza e baixa os arquivos Parquet diretamente do ONS.",
-        ),
-        (
-            "3",
-            "Analise e exporte",
-            "As médias mensais ficam prontas para comparar e baixar em CSV.",
-        ),
-    ]
-    for column, (number, title, body) in zip(columns, cards):
-        with column:
-            st.markdown(
-                f"""
-                <div class="empty-card">
-                    <div class="step-number">{number}</div>
-                    <h3>{title}</h3>
-                    <p>{body}</p>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-    st.info(
-        "Os arquivos são obtidos do Portal de Dados Abertos do ONS somente "
-        "quando você clicar em **Baixar dados do ONS**."
+    st.markdown(
+        """
+        <section class="result-placeholder">
+            <h3>Os resultados aparecerão aqui</h3>
+            <p>
+                Defina o período acima e clique em <strong>Baixar dados do ONS</strong>
+                para iniciar a análise.
+            </p>
+        </section>
+        """,
+        unsafe_allow_html=True,
     )
 
 
@@ -244,32 +311,74 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-with st.sidebar:
-    st.header("Período de análise")
+controls_column, explanation_column = st.columns(2, gap="large")
+
+with controls_column:
     default_start = max(FIRST_AVAILABLE_YEAR, CURRENT_YEAR - 4)
-    selected_period = st.select_slider(
-        "Selecione o intervalo de anos",
-        options=list(range(FIRST_AVAILABLE_YEAR, CURRENT_YEAR + 1)),
-        value=(default_start, CURRENT_YEAR),
-        help="Os dois extremos do intervalo serão incluídos no processamento.",
-    )
-    download_clicked = st.button(
-        "Baixar dados do ONS",
-        type="primary",
-        width="stretch",
-    )
-    st.caption(
-        "A página oficial é consultada no momento do clique. Os arquivos "
-        "Parquet são mantidos apenas durante o processamento."
-    )
-    st.divider()
-    st.markdown("**Regra de cálculo**")
-    st.caption(
-        "Filtro: `id_subsistema = SIN`  \n"
-        "Agregação: média aritmética das observações de cada mês."
-    )
+    with st.container(border=True, key="download_panel"):
+        st.markdown(
+            '<div class="panel-kicker">Obtenção automática</div>',
+            unsafe_allow_html=True,
+        )
+        st.subheader("Selecione o período")
+        st.caption(
+            "Escolha o primeiro e o último ano. Os dois extremos serão incluídos."
+        )
+        selected_period = st.select_slider(
+            "Ano inicial e ano final",
+            options=list(range(FIRST_AVAILABLE_YEAR, CURRENT_YEAR + 1)),
+            value=(default_start, CURRENT_YEAR),
+        )
+        download_clicked = st.button(
+            "Baixar dados do ONS",
+            type="primary",
+            width="stretch",
+        )
+        st.caption(
+            "Fonte oficial do ONS · Formato Parquet · Processamento temporário"
+        )
 
 start_year, end_year = (int(value) for value in selected_period)
+
+with explanation_column:
+    st.markdown(
+        f"""
+        <section class="process-card">
+            <div class="panel-kicker">Fluxo da plataforma</div>
+            <h2>O que será feito?</h2>
+            <p class="process-lead">
+                Ao clicar no botão, a plataforma executará todo o processo
+                automaticamente para o período <strong>{start_year}–{end_year}</strong>.
+            </p>
+            <div class="process-step">
+                <div class="process-number">1</div>
+                <div>
+                    <strong>Localizar os arquivos</strong>
+                    <p>Consulta o catálogo oficial e identifica um Parquet para cada ano.</p>
+                </div>
+            </div>
+            <div class="process-step">
+                <div class="process-number">2</div>
+                <div>
+                    <strong>Baixar e validar</strong>
+                    <p>Salva os arquivos temporariamente e verifica o conteúdo recebido.</p>
+                </div>
+            </div>
+            <div class="process-step">
+                <div class="process-number">3</div>
+                <div>
+                    <strong>Consolidar o SIN</strong>
+                    <p>Calcula as médias mensais e libera indicadores, gráficos e CSV.</p>
+                </div>
+            </div>
+            <p class="process-foot">
+                Nenhum upload manual · Arquivos temporários eliminados ao final
+            </p>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+
 download_error: str | None = None
 
 if download_clicked:
@@ -334,8 +443,8 @@ st.success(
 )
 
 available_years = sorted(result.monthly["Ano"].unique().tolist())
-with st.sidebar:
-    st.divider()
+filter_column, _ = st.columns(2, gap="large")
+with filter_column:
     selected_years = st.multiselect(
         "Anos exibidos",
         options=available_years,
