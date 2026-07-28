@@ -2,14 +2,24 @@ from __future__ import annotations
 
 import calendar
 import re
+import time
 import unicodedata
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import Sequence
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 import pandas as pd
 
+
+ONS_DATASET_URL = "https://dados.ons.org.br/dataset/balanco-energia-subsistema"
+ONS_RESOURCE_BASE_URL = (
+    "https://ons-aws-prod-opendata.s3.amazonaws.com/"
+    "dataset/balanco_energia_subsistema_ho"
+)
+ONS_FIRST_YEAR = 2000
 
 MONTH_NAMES = {
     1: "Janeiro",
@@ -77,6 +87,18 @@ class WorkbookError(ValueError):
     """Erro legível para um arquivo que não segue o formato esperado."""
 
 
+class OnsDownloadError(ConnectionError):
+    """Erro legível ao obter um arquivo oficial do ONS."""
+
+
+@dataclass(frozen=True)
+class DownloadedFile:
+    filename: str
+    content: bytes
+    source_url: str
+    file_format: str
+
+
 @dataclass
 class ProcessingResult:
     monthly: pd.DataFrame
@@ -94,6 +116,54 @@ def build_csv_export(data: pd.DataFrame) -> pd.DataFrame:
         if column not in export.columns:
             export[column] = pd.NA
     return export[CSV_EXPORT_COLUMNS]
+
+
+def build_ons_resource_url(year: int, extension: str = "parquet") -> str:
+    """Monta a URL estável usada pelo portal de Dados Abertos do ONS."""
+    normalized_extension = extension.lower().lstrip(".")
+    if normalized_extension not in {"parquet", "csv"}:
+        raise ValueError("formato do ONS deve ser 'parquet' ou 'csv'")
+    if year < ONS_FIRST_YEAR or year > 2100:
+        raise ValueError(f"ano deve estar entre {ONS_FIRST_YEAR} e 2100")
+    filename = f"BALANCO_ENERGIA_SUBSISTEMA_{year}.{normalized_extension}"
+    return f"{ONS_RESOURCE_BASE_URL}/{filename}"
+
+
+def download_ons_year(
+    year: int,
+    *,
+    timeout: float = 60.0,
+    attempts: int = 3,
+) -> DownloadedFile:
+    """
+    Obtém um ano diretamente do ONS.
+
+    Parquet é tentado primeiro por ser menor e mais rápido. Se o recurso não
+    estiver disponível ou vier inválido, a função usa o CSV oficial.
+    """
+    failures: list[str] = []
+    for extension in ("parquet", "csv"):
+        url = build_ons_resource_url(year, extension)
+        try:
+            content = _download_bytes(
+                url,
+                timeout=timeout,
+                attempts=attempts,
+            )
+            _validate_download(content, extension)
+            return DownloadedFile(
+                filename=Path(url).name,
+                content=content,
+                source_url=url,
+                file_format=extension.upper(),
+            )
+        except Exception as exc:
+            failures.append(f"{extension.upper()}: {exc}")
+
+    details = " | ".join(failures)
+    raise OnsDownloadError(
+        f"não foi possível obter os dados de {year} no ONS. {details}"
+    )
 
 
 def extract_year_from_filename(filename: str) -> int:
@@ -114,7 +184,7 @@ def extract_year_from_filename(filename: str) -> int:
 
 
 def process_uploads(files: Sequence[tuple[str, bytes]]) -> ProcessingResult:
-    """Processa vários arquivos e consolida as médias mensais do SIN."""
+    """Processa vários arquivos do ONS e consolida as médias mensais do SIN."""
     frames: list[pd.DataFrame] = []
     reports: list[dict[str, object]] = []
     warnings: list[str] = []
@@ -122,7 +192,7 @@ def process_uploads(files: Sequence[tuple[str, bytes]]) -> ProcessingResult:
 
     for file_order, (filename, content) in enumerate(files):
         try:
-            frame, report, file_warnings = _load_single_workbook(
+            frame, report, file_warnings = _load_single_source(
                 filename=filename,
                 content=content,
                 file_order=file_order,
@@ -188,26 +258,20 @@ def process_uploads(files: Sequence[tuple[str, bytes]]) -> ProcessingResult:
     )
 
 
-def _load_single_workbook(
+def _load_single_source(
     filename: str,
     content: bytes,
     file_order: int,
 ) -> tuple[pd.DataFrame, dict[str, object], list[str]]:
     year = extract_year_from_filename(filename)
-    suffix = Path(filename).suffix.lower()
-    engine = "xlrd" if suffix == ".xls" else "openpyxl"
 
     try:
-        workbook = pd.read_excel(
-            BytesIO(content),
-            sheet_name=None,
-            engine=engine,
-        )
+        source_tables = _read_source_tables(filename, content)
     except Exception as exc:
-        raise WorkbookError(f"não foi possível abrir o Excel ({exc})") from exc
+        raise WorkbookError(f"não foi possível abrir o arquivo ({exc})") from exc
 
     eligible_sheets: list[pd.DataFrame] = []
-    for sheet_name, raw in workbook.items():
+    for sheet_name, raw in source_tables.items():
         prepared = _prepare_sheet(raw)
         if prepared is not None:
             prepared["__sheet"] = sheet_name
@@ -215,7 +279,7 @@ def _load_single_workbook(
 
     if not eligible_sheets:
         raise WorkbookError(
-            "nenhuma planilha contém data, identificação do subsistema e "
+            "nenhuma tabela contém data, identificação do subsistema e "
             "colunas de valores iniciadas por 'val_'"
         )
 
@@ -300,6 +364,91 @@ def _load_single_workbook(
         "Situação": "Processado",
     }
     return sin_for_year, report, file_warnings
+
+
+def _read_source_tables(
+    filename: str,
+    content: bytes,
+) -> dict[str, pd.DataFrame]:
+    suffix = Path(filename).suffix.lower()
+    if suffix == ".parquet":
+        return {"Dados ONS": pd.read_parquet(BytesIO(content))}
+    if suffix == ".csv":
+        return {
+            "Dados ONS": pd.read_csv(
+                BytesIO(content),
+                sep=";",
+                encoding="utf-8-sig",
+                low_memory=False,
+            )
+        }
+    if suffix in {".xlsx", ".xlsm", ".xls"}:
+        engine = "xlrd" if suffix == ".xls" else "openpyxl"
+        return pd.read_excel(
+            BytesIO(content),
+            sheet_name=None,
+            engine=engine,
+        )
+    raise WorkbookError(
+        f"formato '{suffix or 'sem extensão'}' não suportado; "
+        "use Parquet, CSV ou Excel"
+    )
+
+
+def _download_bytes(
+    url: str,
+    *,
+    timeout: float,
+    attempts: int,
+) -> bytes:
+    if attempts < 1:
+        raise ValueError("attempts deve ser maior ou igual a 1")
+
+    request = Request(
+        url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (compatible; BalancoMensalSIN/2.0; "
+                "+https://dados.ons.org.br/)"
+            ),
+            "Accept": "application/octet-stream,*/*",
+        },
+    )
+    last_error: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                status = getattr(response, "status", 200)
+                if status != 200:
+                    raise OnsDownloadError(f"resposta HTTP {status}")
+                return response.read()
+        except HTTPError as exc:
+            last_error = exc
+            if 400 <= exc.code < 500 and exc.code != 429:
+                break
+        except (URLError, TimeoutError, OSError) as exc:
+            last_error = exc
+
+        if attempt < attempts - 1:
+            time.sleep(0.5 * (2**attempt))
+
+    if isinstance(last_error, HTTPError):
+        raise OnsDownloadError(f"resposta HTTP {last_error.code}") from last_error
+    raise OnsDownloadError(str(last_error or "falha de conexão")) from last_error
+
+
+def _validate_download(content: bytes, extension: str) -> None:
+    if not content:
+        raise OnsDownloadError("o arquivo retornado está vazio")
+    if extension == "parquet":
+        if len(content) < 8 or not (
+            content.startswith(b"PAR1") and content.endswith(b"PAR1")
+        ):
+            raise OnsDownloadError("o conteúdo retornado não é um Parquet válido")
+        return
+    header = content[:512].lstrip(b"\xef\xbb\xbf").lower()
+    if b"id_subsistema" not in header or b"din_instante" not in header:
+        raise OnsDownloadError("o conteúdo retornado não é o CSV esperado")
 
 
 def _prepare_sheet(raw: pd.DataFrame) -> pd.DataFrame | None:

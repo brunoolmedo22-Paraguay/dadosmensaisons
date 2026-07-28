@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Sequence
 
 import pandas as pd
 import streamlit as st
 
-from balanco_ons import ProcessingResult, build_csv_export, process_uploads
+from balanco_ons import (
+    ONS_DATASET_URL,
+    ONS_FIRST_YEAR,
+    DownloadedFile,
+    ProcessingResult,
+    build_csv_export,
+    download_ons_year,
+    process_uploads,
+)
 
 
 st.set_page_config(
@@ -129,6 +138,15 @@ def process_cached(
     return process_uploads(payload)
 
 
+@st.cache_data(
+    show_spinner=False,
+    ttl=6 * 60 * 60,
+    max_entries=64,
+)
+def download_year_cached(year: int) -> DownloadedFile:
+    return download_ons_year(year)
+
+
 def csv_bytes(data: pd.DataFrame) -> bytes:
     return build_csv_export(data).to_csv(
         index=False,
@@ -154,7 +172,7 @@ def display_table(data: pd.DataFrame, metrics: Sequence[str]) -> None:
     )
     st.dataframe(
         visible,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         column_config=config,
         height=min(620, 96 + 35 * len(visible)),
@@ -167,18 +185,18 @@ def render_empty_state() -> None:
     cards = [
         (
             "1",
-            "Carregue os arquivos",
-            "Envie um ou vários Excel do ONS. Cada nome deve conter o ano dos dados.",
+            "Escolha o período",
+            "Informe o primeiro e o último ano que deseja analisar.",
         ),
         (
             "2",
-            "Consolidação automática",
-            "A aplicação seleciona somente o SIN e calcula as médias de cada mês.",
+            "Obtenha os dados",
+            "A aplicação baixa os arquivos oficiais diretamente do portal do ONS.",
         ),
         (
             "3",
             "Baixe o resultado",
-            "A tabela consolidada fica pronta em CSV compatível com Excel em português.",
+            "As médias mensais ficam prontas em CSV compatível com Excel em português.",
         ),
     ]
     for column, (number, title, body) in zip(columns, cards):
@@ -194,7 +212,8 @@ def render_empty_state() -> None:
                 unsafe_allow_html=True,
             )
     st.info(
-        "Exemplo de nome válido: **BALANCO_ENERGIA_SUBSISTEMA_2026.xlsx**"
+        "Selecione os anos na barra lateral e clique em "
+        "**Obter dados do ONS**."
     )
 
 
@@ -204,8 +223,8 @@ st.markdown(
         <div class="hero-kicker">ONS · Consolidação histórica</div>
         <h1 class="hero-title">Balanço Mensal do SIN</h1>
         <p class="hero-copy">
-            Transforme arquivos horários de balanço energético por subsistema
-            em uma única série de médias mensais do Sistema Interligado Nacional.
+            Escolha um período e transforme automaticamente os dados horários
+            oficiais do ONS em uma série de médias mensais do SIN.
         </p>
     </section>
     """,
@@ -213,19 +232,36 @@ st.markdown(
 )
 
 with st.sidebar:
-    st.header("Arquivos de entrada")
-    uploads = st.file_uploader(
-        "Excel do ONS",
-        type=["xlsx", "xlsm", "xls"],
-        accept_multiple_files=True,
-        help=(
-            "O ano é lido do nome de cada arquivo. Você pode selecionar "
-            "vários anos de uma vez."
-        ),
-    )
+    st.header("Período de análise")
+    current_year = date.today().year
+    year_options = list(range(ONS_FIRST_YEAR, current_year + 1))
+    default_start_year = max(ONS_FIRST_YEAR, current_year - 5)
+
+    with st.form("ons_period_form"):
+        start_column, end_column = st.columns(2)
+        with start_column:
+            start_year = st.selectbox(
+                "De",
+                options=year_options,
+                index=year_options.index(default_start_year),
+            )
+        with end_column:
+            end_year = st.selectbox(
+                "Até",
+                options=year_options,
+                index=len(year_options) - 1,
+            )
+        obtain_data = st.form_submit_button(
+            "Obter dados do ONS",
+            type="primary",
+            width="stretch",
+        )
+
     st.caption(
-        "Os arquivos são processados em memória e não são gravados pela aplicação."
+        "Formato preferencial: Parquet. Se necessário, a aplicação usa o CSV "
+        "oficial automaticamente."
     )
+    st.markdown(f"[Abrir conjunto de dados do ONS]({ONS_DATASET_URL})")
     st.divider()
     st.markdown("**Regra de cálculo**")
     st.caption(
@@ -233,13 +269,48 @@ with st.sidebar:
         "Agregação: média aritmética das observações de cada mês."
     )
 
-if not uploads:
+if obtain_data:
+    if start_year > end_year:
+        st.error("O ano inicial deve ser menor ou igual ao ano final.")
+    else:
+        requested_years = list(range(start_year, end_year + 1))
+        progress = st.progress(0, text="Preparando o download...")
+        downloads: list[DownloadedFile] = []
+        download_errors: list[str] = []
+
+        for position, year in enumerate(requested_years, start=1):
+            progress.progress(
+                (position - 1) / len(requested_years),
+                text=f"Obtendo {year} no portal do ONS...",
+            )
+            try:
+                downloads.append(download_year_cached(year))
+            except Exception as exc:
+                download_errors.append(f"{year}: {exc}")
+
+        progress.progress(1.0, text="Consolidando as médias mensais...")
+        if downloads:
+            payload = tuple(
+                (download.filename, download.content)
+                for download in downloads
+            )
+            result = process_cached(payload)
+            st.session_state["ons_result"] = result
+            st.session_state["ons_period"] = (start_year, end_year)
+            st.session_state["ons_download_errors"] = download_errors
+        else:
+            st.session_state.pop("ons_result", None)
+            st.session_state.pop("ons_period", None)
+            st.session_state["ons_download_errors"] = download_errors
+        progress.empty()
+
+result = st.session_state.get("ons_result")
+for message in st.session_state.get("ons_download_errors", []):
+    st.error(message)
+
+if result is None:
     render_empty_state()
     st.stop()
-
-payload = tuple((uploaded.name, uploaded.getvalue()) for uploaded in uploads)
-with st.spinner("Lendo e consolidando os arquivos..."):
-    result = process_cached(payload)
 
 for message in result.errors:
     st.error(message)
@@ -248,11 +319,28 @@ for message in result.warnings:
 
 if result.monthly.empty:
     st.error(
-        "Nenhum resultado pôde ser gerado. Revise os nomes e a estrutura dos arquivos."
+        "Nenhum resultado pôde ser gerado com os arquivos obtidos do ONS."
     )
     st.stop()
 
 available_years = sorted(result.monthly["Ano"].unique().tolist())
+loaded_start, loaded_end = st.session_state["ons_period"]
+requested_years = list(range(loaded_start, loaded_end + 1))
+if available_years == requested_years:
+    if loaded_start == loaded_end:
+        st.success(f"Dados oficiais de {loaded_start} obtidos e consolidados.")
+    else:
+        st.success(
+            f"Dados oficiais de {loaded_start} a {loaded_end} "
+            "obtidos e consolidados."
+        )
+else:
+    loaded_years_text = ", ".join(map(str, available_years))
+    st.warning(
+        "A consulta foi concluída parcialmente. Anos consolidados: "
+        f"{loaded_years_text}."
+    )
+
 with st.sidebar:
     st.divider()
     selected_years = st.multiselect(
@@ -293,7 +381,7 @@ st.download_button(
     data=csv_bytes(filtered),
     file_name=f"balanco_mensal_sin_{export_years}.csv",
     mime="text/csv",
-    use_container_width=True,
+    width="stretch",
 )
 st.caption(
     "O CSV contém somente ano, mês, gerações, carga e intercâmbio. "
@@ -324,7 +412,7 @@ with right:
     st.subheader("Arquivos processados")
     st.dataframe(
         result.file_report,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         height=min(445, 96 + 35 * len(result.file_report)),
         column_config={

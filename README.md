@@ -6,30 +6,20 @@ médias mensais do Sistema Interligado Nacional (SIN).
 
 ## O que a aplicação faz
 
-- recebe vários arquivos Excel ao mesmo tempo;
-- lê o ano diretamente do nome de cada arquivo;
-- valida o ano do nome contra as datas internas;
+- permite selecionar o ano inicial e o ano final da análise;
+- baixa automaticamente cada ano no portal oficial de Dados Abertos do ONS;
+- prioriza o formato Parquet e usa o CSV oficial como alternativa;
+- mantém os downloads em cache por seis horas para agilizar novas consultas;
 - seleciona apenas os registros identificados como `SIN`;
 - calcula a média mensal de cada coluna de balanço;
 - informa horas disponíveis, horas esperadas e cobertura de cada mês;
-- evita contagem dupla quando dois arquivos possuem o mesmo horário;
 - compara os anos em gráfico;
 - exporta para CSV somente ano, mês, gerações, carga e intercâmbio, em formato
   compatível com Excel em português.
 
-O arquivo deve conter um único ano no nome:
+Fonte oficial:
 
-```text
-BALANCO_ENERGIA_SUBSISTEMA_2026.xlsx
-```
-
-## Estrutura esperada do Excel
-
-A aplicação procura automaticamente a planilha que contenha:
-
-- `din_instante`;
-- `id_subsistema` ou `nom_subsistema`;
-- uma ou mais colunas de valores iniciadas por `val_`.
+<https://dados.ons.org.br/dataset/balanco-energia-subsistema>
 
 As colunas conhecidas são apresentadas com nomes amigáveis:
 
@@ -75,8 +65,8 @@ streamlit run app.py
 5. Em **Advanced settings**, mantenha ou selecione Python 3.12.
 6. Clique em **Deploy**.
 
-Não é necessário enviar os Excel ao GitHub. Eles são carregados pelo usuário
-diretamente na interface e processados em memória.
+Não é necessário enviar dados ao GitHub. A própria aplicação consulta os
+arquivos anuais do ONS e os processa em memória.
 
 ## Cálculo
 
@@ -90,9 +80,16 @@ A consolidação usa diretamente a linha do ONS identificada como SIN. Os quatro
 subsistemas regionais não são somados, o que evita distorções nos valores de
 intercâmbio.
 
+O ano corrente pode estar incompleto. A aplicação utiliza somente os horários
+publicados pelo ONS até o momento da consulta e informa a cobertura de cada mês.
+
 Um mês é marcado como **Parcial** quando possui menos registros horários do que
 o total de horas de seu calendário. Essa marcação não impede o cálculo: a média
 é feita com todos os valores válidos disponíveis.
+
+Os arquivos do ONS passam por consistência recorrente e podem ser atualizados
+após a publicação. O cache da aplicação expira em seis horas para permitir a
+atualização periódica sem repetir downloads desnecessários.
 
 ## Testes
 
