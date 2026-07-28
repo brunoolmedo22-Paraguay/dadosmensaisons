@@ -4,14 +4,18 @@ import unittest
 from io import BytesIO
 
 import pandas as pd
+from openpyxl import load_workbook
 
 from balanco_ons import (
     CSV_EXPORT_COLUMNS,
     WorkbookError,
     build_csv_export,
+    build_excel_export,
+    build_generation_chart_export,
     extract_year_from_filename,
     process_uploads,
 )
+from charts import generation_variation_chart
 
 
 def workbook_bytes(frame: pd.DataFrame) -> bytes:
@@ -113,7 +117,57 @@ class ProcessingTests(unittest.TestCase):
         self.assertTrue(any("sobreposto" in warning for warning in result.warnings))
 
     def test_csv_export_contains_only_requested_columns(self) -> None:
-        table = pd.DataFrame(
+        table = self._export_table()
+
+        exported = build_csv_export(table)
+
+        self.assertEqual(exported.columns.tolist(), CSV_EXPORT_COLUMNS)
+        self.assertNotIn("Cobertura (%)", exported.columns)
+        self.assertNotIn("Período", exported.columns)
+
+    def test_excel_export_uses_same_columns_as_csv(self) -> None:
+        workbook = load_workbook(
+            BytesIO(build_excel_export(self._export_table())),
+            data_only=True,
+        )
+        sheet = workbook["Balanço Mensal SIN"]
+        headers = [cell.value for cell in sheet[1]]
+
+        self.assertEqual(headers, CSV_EXPORT_COLUMNS)
+        self.assertEqual(sheet.freeze_panes, "A2")
+        self.assertEqual(sheet["A2"].value, 2026)
+        self.assertEqual(sheet["B2"].value, "Janeiro")
+        self.assertEqual(sheet["C2"].value, 50_000.0)
+
+    def test_chart_csv_is_long_format_without_control_columns(self) -> None:
+        exported = build_generation_chart_export(self._export_table())
+
+        self.assertEqual(
+            exported.columns.tolist(),
+            ["Ano", "Mês", "Fonte", "Geração (MWmed)"],
+        )
+        self.assertEqual(len(exported), 4)
+        self.assertEqual(
+            exported["Fonte"].tolist(),
+            ["Hidráulica", "Térmica", "Eólica", "Solar"],
+        )
+        self.assertNotIn("Cobertura (%)", exported.columns)
+
+    def test_generation_chart_compiles(self) -> None:
+        chart = generation_variation_chart(
+            self._export_table(),
+            "Geração solar (MWmed)",
+            "Solar",
+        )
+        spec = chart.to_dict()
+
+        self.assertEqual(spec["mark"]["type"], "line")
+        self.assertEqual(spec["encoding"]["x"]["field"], "Mês curto")
+        self.assertEqual(spec["encoding"]["y"]["field"], "Geração (MWmed)")
+
+    @staticmethod
+    def _export_table() -> pd.DataFrame:
+        return pd.DataFrame(
             {
                 "Ano": [2026],
                 "Mês nº": [1],
@@ -129,12 +183,6 @@ class ProcessingTests(unittest.TestCase):
                 "Intercâmbio (MWmed)": [0.0],
             }
         )
-
-        exported = build_csv_export(table)
-
-        self.assertEqual(exported.columns.tolist(), CSV_EXPORT_COLUMNS)
-        self.assertNotIn("Cobertura (%)", exported.columns)
-        self.assertNotIn("Período", exported.columns)
 
 
 if __name__ == "__main__":

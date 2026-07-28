@@ -9,6 +9,10 @@ from pathlib import Path
 from typing import Sequence
 
 import pandas as pd
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.table import Table, TableStyleInfo
 
 
 MONTH_NAMES = {
@@ -33,6 +37,13 @@ METRIC_LABELS = {
     "val_gersolar": "Geração solar (MWmed)",
     "val_carga": "Carga (MWmed)",
     "val_intercambio": "Intercâmbio (MWmed)",
+}
+
+GENERATION_SOURCES = {
+    "Geração hidráulica (MWmed)": "Hidráulica",
+    "Geração térmica (MWmed)": "Térmica",
+    "Geração eólica (MWmed)": "Eólica",
+    "Geração solar (MWmed)": "Solar",
 }
 
 CSV_EXPORT_COLUMNS = [
@@ -94,6 +105,102 @@ def build_csv_export(data: pd.DataFrame) -> pd.DataFrame:
         if column not in export.columns:
             export[column] = pd.NA
     return export[CSV_EXPORT_COLUMNS]
+
+
+def build_excel_export(data: pd.DataFrame) -> bytes:
+    """Gera um Excel formatado com as mesmas colunas do CSV principal."""
+    export = build_csv_export(data)
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Balanço Mensal SIN"
+    sheet.sheet_view.showGridLines = False
+    sheet.sheet_view.zoomScale = 85
+    sheet.freeze_panes = "A2"
+    sheet.sheet_properties.pageSetUpPr.fitToPage = True
+    sheet.page_setup.orientation = "landscape"
+    sheet.page_setup.fitToWidth = 1
+    sheet.page_setup.fitToHeight = 0
+    sheet.print_title_rows = "1:1"
+
+    sheet.append(export.columns.tolist())
+    for row in export.itertuples(index=False, name=None):
+        sheet.append([_excel_value(value) for value in row])
+
+    header_fill = PatternFill("solid", fgColor="006B70")
+    header_font = Font(color="FFFFFF", bold=True)
+    for cell in sheet[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    sheet.row_dimensions[1].height = 28
+
+    for row in sheet.iter_rows(min_row=2, min_col=1, max_col=2):
+        row[0].alignment = Alignment(horizontal="center")
+        row[1].alignment = Alignment(horizontal="left")
+
+    for row in sheet.iter_rows(min_row=2, min_col=3, max_col=8):
+        for cell in row:
+            cell.number_format = "#,##0.000"
+
+    widths = [10, 15, 30, 27, 26, 25, 20, 25]
+    for index, width in enumerate(widths, start=1):
+        sheet.column_dimensions[get_column_letter(index)].width = width
+
+    if len(export):
+        table = Table(
+            displayName="BalancoMensalSIN",
+            ref=f"A1:H{len(export) + 1}",
+        )
+        table.tableStyleInfo = TableStyleInfo(
+            name="TableStyleMedium2",
+            showFirstColumn=False,
+            showLastColumn=False,
+            showRowStripes=True,
+            showColumnStripes=False,
+        )
+        sheet.add_table(table)
+
+    workbook.properties.title = "Balanço Mensal do SIN"
+    workbook.properties.subject = "Médias mensais do balanço energético do SIN"
+
+    output = BytesIO()
+    workbook.save(output)
+    return output.getvalue()
+
+
+def build_generation_chart_export(data: pd.DataFrame) -> pd.DataFrame:
+    """Organiza os dados dos quatro gráficos em formato longo para CSV."""
+    available = [
+        metric for metric in GENERATION_SOURCES if metric in data.columns
+    ]
+    if not available:
+        return pd.DataFrame(
+            columns=["Ano", "Mês", "Fonte", "Geração (MWmed)"]
+        )
+
+    id_columns = ["Ano", "Mês"]
+    if "Mês nº" in data.columns:
+        id_columns.append("Mês nº")
+
+    chart_data = data[id_columns + available].melt(
+        id_vars=id_columns,
+        value_vars=available,
+        var_name="__métrica",
+        value_name="Geração (MWmed)",
+    )
+    chart_data["Fonte"] = chart_data["__métrica"].map(GENERATION_SOURCES)
+    chart_data["__fonte_ordem"] = chart_data["__métrica"].map(
+        {metric: order for order, metric in enumerate(GENERATION_SOURCES)}
+    )
+
+    sort_columns = ["Ano"]
+    if "Mês nº" in chart_data.columns:
+        sort_columns.append("Mês nº")
+    sort_columns.append("__fonte_ordem")
+    chart_data = chart_data.sort_values(sort_columns, kind="stable")
+    return chart_data[
+        ["Ano", "Mês", "Fonte", "Geração (MWmed)"]
+    ].reset_index(drop=True)
 
 
 def extract_year_from_filename(filename: str) -> int:
@@ -478,3 +585,11 @@ def _normalize_name(value: object) -> str:
     text = "".join(character for character in text if not unicodedata.combining(character))
     text = text.strip().lower()
     return re.sub(r"[^a-z0-9]+", "_", text).strip("_")
+
+
+def _excel_value(value: object) -> object:
+    if pd.isna(value):
+        return None
+    if hasattr(value, "item"):
+        return value.item()
+    return value

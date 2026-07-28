@@ -13,9 +13,11 @@ médias mensais do Sistema Interligado Nacional (SIN).
 - calcula a média mensal de cada coluna de balanço;
 - informa horas disponíveis, horas esperadas e cobertura de cada mês;
 - evita contagem dupla quando dois arquivos possuem o mesmo horário;
-- compara os anos em gráfico;
+- apresenta quatro gráficos de variação mensal, um por fonte de geração;
+- exporta os dados dos gráficos em CSV;
 - exporta para CSV somente ano, mês, gerações, carga e intercâmbio, em formato
   compatível com Excel em português.
+- exporta a mesma tabela simplificada em Excel formatado.
 
 O arquivo deve conter um único ano no nome:
 

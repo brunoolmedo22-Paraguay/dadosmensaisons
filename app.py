@@ -5,7 +5,15 @@ from typing import Sequence
 import pandas as pd
 import streamlit as st
 
-from balanco_ons import ProcessingResult, build_csv_export, process_uploads
+from balanco_ons import (
+    GENERATION_SOURCES,
+    ProcessingResult,
+    build_csv_export,
+    build_excel_export,
+    build_generation_chart_export,
+    process_uploads,
+)
+from charts import generation_variation_chart
 
 
 st.set_page_config(
@@ -138,6 +146,14 @@ def csv_bytes(data: pd.DataFrame) -> bytes:
     ).encode("utf-8-sig")
 
 
+def chart_csv_bytes(data: pd.DataFrame) -> bytes:
+    return build_generation_chart_export(data).to_csv(
+        index=False,
+        sep=";",
+        decimal=",",
+    ).encode("utf-8-sig")
+
+
 def display_table(data: pd.DataFrame, metrics: Sequence[str]) -> None:
     visible = data.drop(columns=["Mês nº"])
     config: dict[str, object] = {
@@ -178,7 +194,7 @@ def render_empty_state() -> None:
         (
             "3",
             "Baixe o resultado",
-            "A tabela consolidada fica pronta em CSV compatível com Excel em português.",
+            "A tabela consolidada fica pronta para baixar em CSV ou Excel.",
         ),
     ]
     for column, (number, title, body) in zip(columns, cards):
@@ -288,40 +304,69 @@ st.markdown(
 display_table(filtered, metric_columns)
 
 export_years = "-".join(map(str, selected_years))
-st.download_button(
-    "Baixar tabela consolidada em CSV",
-    data=csv_bytes(filtered),
-    file_name=f"balanco_mensal_sin_{export_years}.csv",
-    mime="text/csv",
-    use_container_width=True,
-)
-st.caption(
-    "O CSV contém somente ano, mês, gerações, carga e intercâmbio. "
-    "Formato UTF-8, com ponto e vírgula e vírgula decimal."
-)
-
-left, right = st.columns([1.55, 1])
-with left:
-    st.subheader("Comparação entre anos")
-    chart_metric = st.selectbox(
-        "Grandeza",
-        options=metric_columns,
-        index=0,
+csv_column, excel_column = st.columns(2)
+with csv_column:
+    st.download_button(
+        "Baixar tabela em CSV",
+        data=csv_bytes(filtered),
+        file_name=f"balanco_mensal_sin_{export_years}.csv",
+        mime="text/csv",
+        use_container_width=True,
     )
-    chart = filtered.pivot(
-        index="Mês nº",
-        columns="Ano",
-        values=chart_metric,
-    ).reindex(range(1, 13))
-    chart.index = [MONTH for MONTH in (
-        "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
-        "Jul", "Ago", "Set", "Out", "Nov", "Dez"
-    )]
-    chart.columns = chart.columns.astype(str)
-    st.line_chart(chart, x_label="Mês", y_label=chart_metric)
+with excel_column:
+    st.download_button(
+        "Baixar tabela em Excel",
+        data=build_excel_export(filtered),
+        file_name=f"balanco_mensal_sin_{export_years}.xlsx",
+        mime=(
+            "application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
+        ),
+        use_container_width=True,
+    )
+st.caption(
+    "Os dois arquivos contêm somente ano, mês, gerações, carga e intercâmbio. "
+    "O CSV usa UTF-8, ponto e vírgula e vírgula decimal."
+)
 
-with right:
-    st.subheader("Arquivos processados")
+st.subheader("Variação mensal da geração por fonte")
+chart_intro, chart_download = st.columns([2.2, 1])
+with chart_intro:
+    st.markdown(
+        '<p class="small-note">Cada gráfico mostra uma linha por ano, '
+        "permitindo comparar o comportamento mensal de cada fonte.</p>",
+        unsafe_allow_html=True,
+    )
+with chart_download:
+    st.download_button(
+        "Baixar dados dos gráficos em CSV",
+        data=chart_csv_bytes(filtered),
+        file_name=f"variacao_geracao_por_fonte_{export_years}.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
+
+source_items = list(GENERATION_SOURCES.items())
+for start in range(0, len(source_items), 2):
+    chart_columns = st.columns(2)
+    for column, (metric, source_name) in zip(
+        chart_columns,
+        source_items[start : start + 2],
+    ):
+        with column:
+            if metric in filtered.columns and filtered[metric].notna().any():
+                st.altair_chart(
+                    generation_variation_chart(
+                        filtered,
+                        metric,
+                        source_name,
+                    ),
+                    use_container_width=True,
+                )
+            else:
+                st.info(f"Sem dados de geração {source_name.lower()}.")
+
+with st.expander("Ver arquivos processados"):
     st.dataframe(
         result.file_report,
         use_container_width=True,
