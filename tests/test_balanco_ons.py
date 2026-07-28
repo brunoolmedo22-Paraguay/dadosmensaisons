@@ -11,6 +11,8 @@ from balanco_ons import (
     CSV_EXPORT_COLUMNS,
     WorkbookError,
     build_csv_export,
+    build_granular_csv_export,
+    build_period_summary,
     extract_year_from_filename,
     process_parquet_files,
     process_uploads,
@@ -73,6 +75,7 @@ class ProcessingTests(unittest.TestCase):
         self.assertEqual(january["Geração hidráulica (MWmed)"], 150.0)
         self.assertEqual(january["Carga (MWmed)"], 600.0)
         self.assertEqual(january["Horas com dados"], 2)
+        self.assertEqual(len(result.hourly), 3)
 
     def test_filename_year_is_validated_against_internal_dates(self) -> None:
         frame = pd.DataFrame(
@@ -165,6 +168,58 @@ class ProcessingTests(unittest.TestCase):
         self.assertEqual(march["Geração solar (MWmed)"], 1_100.0)
         self.assertEqual(march["Carga (MWmed)"], 81_000.0)
         self.assertEqual(result.file_report.iloc[0]["Arquivo"], path.name)
+
+    def test_builds_all_granularities_and_filters_dates(self) -> None:
+        timestamps = pd.date_range(
+            "2024-02-28 00:00",
+            periods=48,
+            freq="h",
+        )
+        hourly = pd.DataFrame(
+            {
+                "din_instante": timestamps,
+                "val_carga": list(range(48)),
+                "val_gersolar": [100.0] * 48,
+            }
+        )
+
+        hourly_summary = build_period_summary(
+            hourly,
+            granularity="hourly",
+            start_date=pd.Timestamp("2024-02-28"),
+            end_date=pd.Timestamp("2024-02-28"),
+        )
+        daily_summary = build_period_summary(hourly, granularity="daily")
+        monthly_summary = build_period_summary(hourly, granularity="monthly")
+        yearly_summary = build_period_summary(hourly, granularity="yearly")
+
+        self.assertEqual(len(hourly_summary), 24)
+        self.assertEqual(len(daily_summary), 2)
+        self.assertEqual(
+            daily_summary.iloc[0]["Carga (MWmed)"],
+            11.5,
+        )
+        self.assertEqual(len(monthly_summary), 1)
+        self.assertEqual(monthly_summary.iloc[0]["Horas esperadas"], 696)
+        self.assertEqual(monthly_summary.iloc[0]["Status do período"], "Parcial")
+        self.assertEqual(len(yearly_summary), 1)
+        self.assertEqual(yearly_summary.iloc[0]["Horas esperadas"], 8_784)
+
+    def test_granular_csv_matches_selected_discretization(self) -> None:
+        daily = pd.DataFrame(
+            {
+                "Data": [pd.Timestamp("2026-07-28").date()],
+                "Carga (MWmed)": [80_000.0],
+                "Cobertura (%)": [100.0],
+            }
+        )
+
+        exported = build_granular_csv_export(daily, "daily")
+
+        self.assertEqual(exported.columns[0], "Data")
+        self.assertEqual(exported.iloc[0]["Data"], "28/07/2026")
+        self.assertNotIn("Cobertura (%)", exported.columns)
+        self.assertIn("Geração hidráulica (MWmed)", exported.columns)
 
 
 if __name__ == "__main__":

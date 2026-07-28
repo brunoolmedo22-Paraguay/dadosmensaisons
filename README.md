@@ -1,8 +1,9 @@
-# Balanço Mensal do SIN
+# Balanço Energético do SIN
 
 Aplicação Streamlit que consulta o Portal de Dados Abertos do ONS e transforma
-os arquivos horários de **Balanço de Energia por Subsistema** em uma tabela
-histórica com as médias mensais do Sistema Interligado Nacional (SIN).
+os arquivos horários de **Balanço de Energia por Subsistema** em séries
+históricas horárias, diárias, mensais ou anuais do Sistema Interligado Nacional
+(SIN).
 
 ## Fluxo automático
 
@@ -12,9 +13,10 @@ histórica com as médias mensais do Sistema Interligado Nacional (SIN).
 3. O código identifica por web scraping os links anuais em formato Parquet.
 4. Os arquivos correspondentes ao período são baixados para uma pasta
    temporária.
-5. A aplicação valida, consolida e guarda somente o resultado processado na
-   sessão do Streamlit.
+5. A aplicação valida, consolida e guarda a série horária limpa na sessão do
+   Streamlit.
 6. A pasta temporária e os Parquet são eliminados automaticamente.
+7. O usuário escolhe a discretização e baixa o CSV correspondente.
 
 Não é necessário baixar ou carregar arquivos manualmente.
 
@@ -31,10 +33,12 @@ https://dados.ons.org.br/dataset/balanco-energia-subsistema
 - converte datas e valores numéricos;
 - descarta registros inválidos;
 - evita contagem dupla quando há horários repetidos;
-- calcula a média mensal de cada coluna de balanço;
-- informa horas disponíveis, horas esperadas e cobertura de cada mês;
-- compara anos em gráfico;
-- exporta o resultado em CSV compatível com Excel em português.
+- oferece discretização horária, diária, mensal e anual;
+- permite limitar por data inicial e final nas visualizações horária e diária;
+- calcula a média de cada coluna dentro do período selecionado;
+- informa horas disponíveis, horas esperadas e cobertura de cada período;
+- adapta a tabela e o gráfico à discretização selecionada;
+- exporta exatamente a saída visível em CSV compatível com Excel em português.
 
 As colunas conhecidas são apresentadas com nomes amigáveis:
 
@@ -52,18 +56,18 @@ tabela e no gráfico.
 
 ## Regra de cálculo
 
-Para cada ano e mês:
+Para cada período da discretização selecionada:
 
 ```text
-média mensal = soma dos valores horários válidos / quantidade de valores válidos
+média do período = soma dos valores horários válidos / quantidade de valores válidos
 ```
 
 A consolidação usa diretamente a linha identificada como `SIN`. Os quatro
 subsistemas regionais não são somados, evitando distorções nos valores de
 intercâmbio.
 
-Um mês é marcado como **Parcial** quando possui menos registros horários que o
-total de horas de seu calendário. A média continua sendo calculada com os
+Um período é marcado como **Parcial** quando possui menos registros horários que
+o total esperado para sua duração. A média continua sendo calculada com os
 valores válidos disponíveis.
 
 ## Executar localmente
@@ -105,7 +109,7 @@ O servidor onde a aplicação for publicada precisa permitir conexões HTTPS com
 
 - `app.py`: interface e estado da sessão;
 - `ons_download.py`: scraping, download e validação dos Parquet;
-- `balanco_ons.py`: limpeza e consolidação mensal;
+- `balanco_ons.py`: limpeza e agregação horária, diária, mensal e anual;
 - `tests/`: testes automatizados.
 
 ## Testes

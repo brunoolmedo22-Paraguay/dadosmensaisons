@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Sequence
@@ -8,16 +8,40 @@ from typing import Sequence
 import pandas as pd
 import streamlit as st
 
-from balanco_ons import ProcessingResult, build_csv_export, process_parquet_files
+from balanco_ons import (
+    Granularity,
+    ProcessingResult,
+    build_granular_csv_export,
+    build_period_summary,
+    process_parquet_files,
+)
 from ons_download import ONSDownloadError, download_parquet_years
 
 
 FIRST_AVAILABLE_YEAR = 2000
 CURRENT_YEAR = date.today().year
+GRANULARITY_OPTIONS: dict[str, Granularity] = {
+    "Horária": "hourly",
+    "Diária": "daily",
+    "Mensal": "monthly",
+    "Anual": "yearly",
+}
+GRANULARITY_TITLES: dict[Granularity, str] = {
+    "hourly": "Série horária do SIN",
+    "daily": "Médias diárias do SIN",
+    "monthly": "Médias mensais do SIN",
+    "yearly": "Médias anuais do SIN",
+}
+GRANULARITY_SLUGS: dict[Granularity, str] = {
+    "hourly": "horario",
+    "daily": "diario",
+    "monthly": "mensal",
+    "yearly": "anual",
+}
 
 
 st.set_page_config(
-    page_title="Balanço Mensal do SIN",
+    page_title="Balanço Energético do SIN",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -140,6 +164,13 @@ st.markdown(
             padding: 1.15rem 1.25rem;
             box-shadow: 0 8px 24px rgba(20, 61, 64, .06);
         }
+        .st-key-output_panel {
+            background: rgba(255, 255, 255, .92);
+            border-color: var(--line) !important;
+            border-radius: 18px;
+            padding: 1.05rem 1.15rem;
+            box-shadow: 0 8px 24px rgba(20, 61, 64, .05);
+        }
         .process-card {
             min-height: 20.25rem;
             padding: 1.35rem 1.45rem;
@@ -220,8 +251,8 @@ st.markdown(
 )
 
 
-def csv_bytes(data: pd.DataFrame) -> bytes:
-    return build_csv_export(data).to_csv(
+def csv_bytes(data: pd.DataFrame, granularity: Granularity) -> bytes:
+    return build_granular_csv_export(data, granularity).to_csv(
         index=False,
         sep=";",
         decimal=",",
@@ -230,9 +261,16 @@ def csv_bytes(data: pd.DataFrame) -> bytes:
 
 
 def display_table(data: pd.DataFrame, metrics: Sequence[str]) -> None:
-    visible = data.drop(columns=["Mês nº"])
+    visible = data.drop(
+        columns=["Mês nº", "__period_start"],
+        errors="ignore",
+    )
     config: dict[str, object] = {
         "Ano": st.column_config.NumberColumn(format="%d"),
+        "Data e hora": st.column_config.DatetimeColumn(
+            format="DD/MM/YYYY HH:mm",
+        ),
+        "Data": st.column_config.DateColumn(format="DD/MM/YYYY"),
         "Cobertura (%)": st.column_config.NumberColumn(format="%.1f%%"),
         "Horas com dados": st.column_config.NumberColumn(format="%d"),
         "Horas esperadas": st.column_config.NumberColumn(format="%d"),
@@ -301,10 +339,10 @@ st.markdown(
     """
     <section class="hero">
         <div class="hero-kicker">ONS · Consolidação histórica</div>
-        <h1 class="hero-title">Balanço Mensal do SIN</h1>
+        <h1 class="hero-title">Balanço Energético do SIN</h1>
         <p class="hero-copy">
             Escolha o período e transforme automaticamente os dados horários
-            publicados pelo ONS em uma série de médias mensais do SIN.
+            publicados pelo ONS na discretização mais adequada para sua análise.
         </p>
     </section>
     """,
@@ -367,8 +405,8 @@ with explanation_column:
             <div class="process-step">
                 <div class="process-number">3</div>
                 <div>
-                    <strong>Consolidar o SIN</strong>
-                    <p>Calcula as médias mensais e libera indicadores, gráficos e CSV.</p>
+                    <strong>Preparar a série do SIN</strong>
+                    <p>Limpa os registros horários e os deixa prontos para análise e CSV.</p>
                 </div>
             </div>
             <p class="process-foot">
@@ -385,7 +423,11 @@ if download_clicked:
     st.session_state.pop("ons_result", None)
     st.session_state.pop("ons_period", None)
     st.session_state.pop("ons_download_bytes", None)
-    st.session_state.pop("display_years", None)
+    for state_key in list(st.session_state):
+        if str(state_key).startswith(
+            ("analysis_start_", "analysis_end_")
+        ):
+            st.session_state.pop(state_key, None)
     try:
         downloaded_result, downloaded_bytes = obtain_ons_data(
             start_year=start_year,
@@ -426,7 +468,7 @@ for message in result.errors:
 for message in result.warnings:
     st.warning(message)
 
-if result.monthly.empty:
+if result.hourly.empty:
     st.error(
         "Nenhum resultado pôde ser gerado. Verifique o período selecionado "
         "e as mensagens apresentadas acima."
@@ -442,76 +484,200 @@ st.success(
     f"{downloaded_files} arquivo(s) Parquet, {downloaded_megabytes:.1f} MB."
 )
 
-available_years = sorted(result.monthly["Ano"].unique().tolist())
-filter_column, _ = st.columns(2, gap="large")
-with filter_column:
-    selected_years = st.multiselect(
-        "Anos exibidos",
-        options=available_years,
-        default=available_years,
-        key="display_years",
-    )
-
-if not selected_years:
-    st.info("Selecione ao menos um ano na barra lateral.")
-    st.stop()
-
-filtered = result.monthly.loc[
-    result.monthly["Ano"].isin(selected_years)
-].reset_index(drop=True)
-
 metric_columns = result.metric_columns
-complete_months = int(filtered["Status do mês"].eq("Completo").sum())
-coverage = float(filtered["Cobertura (%)"].mean())
+timestamps = pd.to_datetime(result.hourly["din_instante"], errors="coerce").dropna()
+data_min = timestamps.min().date()
+data_max = timestamps.max().date()
 
-metric_cards = st.columns(4)
-metric_cards[0].metric("Anos consolidados", filtered["Ano"].nunique())
-metric_cards[1].metric("Meses disponíveis", len(filtered))
-metric_cards[2].metric("Meses completos", complete_months)
-metric_cards[3].metric("Cobertura média", f"{coverage:.1f}%")
+metrics_placeholder = st.empty()
+table_column, settings_column = st.columns([1.7, 1], gap="large")
 
-st.subheader("Médias mensais do SIN")
-st.markdown(
-    '<p class="small-note">Valores energéticos expressos como potência média '
-    "no mês (MWmed). A cobertura permite identificar meses ainda parciais.</p>",
-    unsafe_allow_html=True,
-)
-display_table(filtered, metric_columns)
+with settings_column:
+    with st.container(border=True, key="output_panel"):
+        st.markdown(
+            '<div class="panel-kicker">Configuração da saída</div>',
+            unsafe_allow_html=True,
+        )
+        st.subheader("Discretização e CSV")
+        granularity_label = st.selectbox(
+            "Discretização dos dados",
+            options=list(GRANULARITY_OPTIONS),
+            index=2,
+            key="granularity_label",
+        )
+        granularity = GRANULARITY_OPTIONS[granularity_label]
 
-export_years = "-".join(map(str, selected_years))
-st.download_button(
-    "Baixar tabela consolidada em CSV",
-    data=csv_bytes(filtered),
-    file_name=f"balanco_mensal_sin_{export_years}.csv",
-    mime="text/csv",
-    width="stretch",
-)
-st.caption(
-    "O CSV contém somente ano, mês, gerações, carga e intercâmbio. "
-    "Formato UTF-8, com ponto e vírgula e vírgula decimal."
-)
+        analysis_start: date | None = None
+        analysis_end: date | None = None
+        valid_dates = True
 
-left, right = st.columns([1.55, 1])
-with left:
-    st.subheader("Comparação entre anos")
-    chart_metric = st.selectbox(
-        "Grandeza",
-        options=metric_columns,
-        index=0,
+        if granularity in {"hourly", "daily"}:
+            suggested_days = 6 if granularity == "hourly" else 30
+            suggested_start = max(
+                data_min,
+                data_max - timedelta(days=suggested_days),
+            )
+            date_key = (
+                f"{loaded_period[0]}_{loaded_period[1]}_{granularity}"
+            )
+            start_column, end_column = st.columns(2, gap="small")
+            with start_column:
+                analysis_start = st.date_input(
+                    "Data inicial",
+                    value=suggested_start,
+                    min_value=data_min,
+                    max_value=data_max,
+                    key=f"analysis_start_{date_key}",
+                )
+            with end_column:
+                analysis_end = st.date_input(
+                    "Data final",
+                    value=data_max,
+                    min_value=data_min,
+                    max_value=data_max,
+                    key=f"analysis_end_{date_key}",
+                )
+            if analysis_start > analysis_end:
+                st.error("A data inicial deve ser anterior à data final.")
+                valid_dates = False
+            else:
+                st.caption(
+                    "Use os dois calendários para limitar o volume exibido e exportado."
+                )
+        else:
+            st.info(
+                f"Todo o intervalo baixado, de {loaded_period[0]} a "
+                f"{loaded_period[1]}, será incluído."
+            )
+
+        if valid_dates:
+            summary = build_period_summary(
+                result.hourly,
+                granularity=granularity,
+                start_date=analysis_start,
+                end_date=analysis_end,
+            )
+        else:
+            summary = pd.DataFrame()
+
+        st.divider()
+        if summary.empty:
+            st.warning("Não há dados para a configuração selecionada.")
+
+        if analysis_start is not None and analysis_end is not None:
+            export_period = (
+                f"{analysis_start:%Y%m%d}-{analysis_end:%Y%m%d}"
+            )
+        else:
+            export_period = f"{loaded_period[0]}-{loaded_period[1]}"
+
+        export_name = (
+            f"balanco_sin_{GRANULARITY_SLUGS[granularity]}_"
+            f"{export_period}.csv"
+        )
+        st.download_button(
+            "Baixar dados consolidados em CSV",
+            data=(
+                csv_bytes(summary, granularity)
+                if not summary.empty
+                else b""
+            ),
+            file_name=export_name,
+            mime="text/csv",
+            type="primary",
+            width="stretch",
+            disabled=summary.empty,
+        )
+        st.caption(
+            "O CSV corresponde exatamente à discretização e ao período "
+            "mostrados na tabela."
+        )
+
+if not summary.empty:
+    complete_periods = int(
+        summary["Status do período"].eq("Completo").sum()
     )
-    chart = filtered.pivot(
-        index="Mês nº",
-        columns="Ano",
-        values=chart_metric,
-    ).reindex(range(1, 13))
-    chart.index = [MONTH for MONTH in (
-        "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
-        "Jul", "Ago", "Set", "Out", "Nov", "Dez"
-    )]
-    chart.columns = chart.columns.astype(str)
-    st.line_chart(chart, x_label="Mês", y_label=chart_metric)
+    coverage = float(summary["Cobertura (%)"].mean())
+    with metrics_placeholder.container():
+        metric_cards = st.columns(4)
+        metric_cards[0].metric("Discretização", granularity_label)
+        metric_cards[1].metric("Linhas no resultado", len(summary))
+        metric_cards[2].metric("Períodos completos", complete_periods)
+        metric_cards[3].metric("Cobertura média", f"{coverage:.1f}%")
 
-with right:
+with table_column:
+    st.subheader(GRANULARITY_TITLES[granularity])
+    if granularity in {"hourly", "daily"} and analysis_start and analysis_end:
+        table_note = (
+            f"Período exibido: {analysis_start:%d/%m/%Y} a "
+            f"{analysis_end:%d/%m/%Y}."
+        )
+    else:
+        table_note = (
+            f"Período exibido: {loaded_period[0]} a {loaded_period[1]}."
+        )
+    st.markdown(
+        f'<p class="small-note">{table_note} Valores expressos como potência '
+        "média em MWmed.</p>",
+        unsafe_allow_html=True,
+    )
+    if summary.empty:
+        st.info("Ajuste a configuração ao lado para visualizar os dados.")
+    else:
+        display_table(summary, metric_columns)
+
+chart_column, report_column = st.columns([1.55, 1], gap="large")
+with chart_column:
+    chart_titles: dict[Granularity, str] = {
+        "hourly": "Evolução horária",
+        "daily": "Evolução diária",
+        "monthly": "Comparação mensal entre anos",
+        "yearly": "Evolução anual",
+    }
+    st.subheader(chart_titles[granularity])
+    if summary.empty:
+        st.info("O gráfico será exibido quando houver dados na tabela.")
+    else:
+        chart_metric = st.selectbox(
+            "Grandeza",
+            options=metric_columns,
+            index=0,
+            key="chart_metric",
+        )
+        if granularity == "monthly":
+            chart = summary.pivot(
+                index="Mês nº",
+                columns="Ano",
+                values=chart_metric,
+            ).reindex(range(1, 13))
+            chart.index = [
+                "Jan",
+                "Fev",
+                "Mar",
+                "Abr",
+                "Mai",
+                "Jun",
+                "Jul",
+                "Ago",
+                "Set",
+                "Out",
+                "Nov",
+                "Dez",
+            ]
+            chart.columns = chart.columns.astype(str)
+            x_label = "Mês"
+        elif granularity == "hourly":
+            chart = summary.set_index("Data e hora")[[chart_metric]]
+            x_label = "Data e hora"
+        elif granularity == "daily":
+            chart = summary.set_index("Data")[[chart_metric]]
+            x_label = "Data"
+        else:
+            chart = summary.set_index("Ano")[[chart_metric]]
+            x_label = "Ano"
+        st.line_chart(chart, x_label=x_label, y_label=chart_metric)
+
+with report_column:
     st.subheader("Arquivos processados")
     st.dataframe(
         result.file_report,

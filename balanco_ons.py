@@ -3,10 +3,11 @@ from __future__ import annotations
 import calendar
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import date
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Literal, Sequence
 
 import pandas as pd
 
@@ -40,6 +41,15 @@ CSV_EXPORT_COLUMNS = [
     "Mês",
     *METRIC_LABELS.values(),
 ]
+
+Granularity = Literal["hourly", "daily", "monthly", "yearly"]
+
+GRANULARITY_PERIOD_COLUMNS: dict[Granularity, list[str]] = {
+    "hourly": ["Data e hora"],
+    "daily": ["Data"],
+    "monthly": ["Ano", "Mês"],
+    "yearly": ["Ano"],
+}
 
 COLUMN_ALIASES = {
     "id_subsistema": {
@@ -85,6 +95,7 @@ class ProcessingResult:
     errors: list[str]
     metric_columns: list[str]
     hourly_rows: int
+    hourly: pd.DataFrame = field(default_factory=pd.DataFrame)
 
 
 def build_csv_export(data: pd.DataFrame) -> pd.DataFrame:
@@ -94,6 +105,144 @@ def build_csv_export(data: pd.DataFrame) -> pd.DataFrame:
         if column not in export.columns:
             export[column] = pd.NA
     return export[CSV_EXPORT_COLUMNS]
+
+
+def build_granular_csv_export(
+    data: pd.DataFrame,
+    granularity: Granularity,
+) -> pd.DataFrame:
+    """Monta o CSV correspondente à discretização exibida."""
+    if granularity not in GRANULARITY_PERIOD_COLUMNS:
+        raise ValueError(f"Discretização inválida: {granularity}")
+
+    export = data.copy()
+    period_columns = GRANULARITY_PERIOD_COLUMNS[granularity]
+    known_metrics = list(METRIC_LABELS.values())
+    extra_metrics = [
+        column
+        for column in export.columns
+        if column.endswith(" (média)") and column not in known_metrics
+    ]
+
+    for column in [*period_columns, *known_metrics]:
+        if column not in export.columns:
+            export[column] = pd.NA
+
+    if "Data e hora" in export.columns:
+        timestamps = pd.to_datetime(export["Data e hora"], errors="coerce")
+        export["Data e hora"] = timestamps.dt.strftime("%d/%m/%Y %H:%M")
+    if "Data" in export.columns:
+        dates = pd.to_datetime(export["Data"], errors="coerce")
+        export["Data"] = dates.dt.strftime("%d/%m/%Y")
+
+    return export[[*period_columns, *known_metrics, *extra_metrics]]
+
+
+def build_period_summary(
+    hourly: pd.DataFrame,
+    granularity: Granularity,
+    start_date: date | pd.Timestamp | None = None,
+    end_date: date | pd.Timestamp | None = None,
+) -> pd.DataFrame:
+    """Agrega a série horária nas discretizações disponíveis na interface."""
+    if granularity not in GRANULARITY_PERIOD_COLUMNS:
+        raise ValueError(f"Discretização inválida: {granularity}")
+    if hourly.empty or "din_instante" not in hourly.columns:
+        return pd.DataFrame()
+
+    data = hourly.copy()
+    data["din_instante"] = pd.to_datetime(data["din_instante"], errors="coerce")
+    data = data.dropna(subset=["din_instante"])
+    if data.empty:
+        return pd.DataFrame()
+
+    if start_date is not None:
+        start = _timestamp_boundary(data["din_instante"], start_date)
+        data = data.loc[data["din_instante"].ge(start)]
+    if end_date is not None:
+        end = _timestamp_boundary(
+            data["din_instante"],
+            end_date,
+        ) + pd.Timedelta(1, unit="D")
+        data = data.loc[data["din_instante"].lt(end)]
+    if data.empty:
+        return pd.DataFrame()
+
+    metric_columns = _ordered_metrics(
+        [
+            column
+            for column in data.columns
+            if column.startswith("val_") and data[column].notna().any()
+        ]
+    )
+    if not metric_columns:
+        return pd.DataFrame()
+
+    if granularity == "hourly":
+        data["__period_start"] = data["din_instante"].dt.floor("h")
+    elif granularity == "daily":
+        data["__period_start"] = data["din_instante"].dt.floor("D")
+    elif granularity == "monthly":
+        data["__period_start"] = (
+            data["din_instante"].dt.to_period("M").dt.to_timestamp()
+        )
+    else:
+        data["__period_start"] = (
+            data["din_instante"].dt.to_period("Y").dt.to_timestamp()
+        )
+
+    grouped = data.groupby("__period_start", sort=True, observed=True)
+    means = grouped[metric_columns].mean()
+    hours = grouped["din_instante"].nunique().rename("Horas com dados")
+    summary = means.join(hours).reset_index()
+    summary["Horas esperadas"] = summary["__period_start"].map(
+        lambda timestamp: _expected_hours(pd.Timestamp(timestamp), granularity)
+    )
+    summary["Cobertura (%)"] = (
+        summary["Horas com dados"] / summary["Horas esperadas"] * 100
+    ).round(1)
+    summary["Status do período"] = summary.apply(
+        lambda row: _coverage_status(
+            int(row["Horas com dados"]),
+            int(row["Horas esperadas"]),
+        ),
+        axis=1,
+    )
+
+    if granularity == "hourly":
+        summary["Data e hora"] = summary["__period_start"]
+    elif granularity == "daily":
+        summary["Data"] = summary["__period_start"].dt.date
+    elif granularity == "monthly":
+        summary["Ano"] = summary["__period_start"].dt.year.astype(int)
+        summary["Mês nº"] = summary["__period_start"].dt.month.astype(int)
+        summary["Mês"] = summary["Mês nº"].map(MONTH_NAMES)
+    else:
+        summary["Ano"] = summary["__period_start"].dt.year.astype(int)
+
+    summary = summary.rename(
+        columns={column: _metric_label(column) for column in metric_columns}
+    )
+    display_metrics = [_metric_label(column) for column in metric_columns]
+    period_columns = GRANULARITY_PERIOD_COLUMNS[granularity]
+    internal_columns = ["__period_start"]
+    if granularity == "monthly":
+        internal_columns.append("Mês nº")
+    ordered_columns = [
+        *period_columns,
+        *internal_columns,
+        "Horas com dados",
+        "Horas esperadas",
+        "Cobertura (%)",
+        "Status do período",
+        *display_metrics,
+    ]
+    summary = summary[ordered_columns].sort_values(
+        "__period_start",
+        kind="stable",
+    )
+    summary[display_metrics] = summary[display_metrics].round(3)
+    return summary.reset_index(drop=True)
 
 
 def extract_year_from_filename(filename: str) -> int:
@@ -190,6 +339,8 @@ def _process_sources(
 
     monthly = _monthly_summary(combined, metric_columns)
     display_metric_columns = [_metric_label(column) for column in metric_columns]
+    hourly = combined[["din_instante", *metric_columns]].copy()
+    hourly = hourly.sort_values("din_instante", kind="stable").reset_index(drop=True)
 
     return ProcessingResult(
         monthly=monthly,
@@ -198,6 +349,7 @@ def _process_sources(
         errors=errors,
         metric_columns=display_metric_columns,
         hourly_rows=len(combined),
+        hourly=hourly,
     )
 
 
@@ -504,11 +656,39 @@ def _monthly_summary(
 def _month_status(row: pd.Series) -> str:
     actual = int(row["Horas com dados"])
     expected = int(row["Horas esperadas"])
+    return _coverage_status(actual, expected)
+
+
+def _coverage_status(actual: int, expected: int) -> str:
     if actual == expected:
         return "Completo"
     if actual < expected:
         return "Parcial"
     return "Revisar"
+
+
+def _expected_hours(
+    timestamp: pd.Timestamp,
+    granularity: Granularity,
+) -> int:
+    if granularity == "hourly":
+        return 1
+    if granularity == "daily":
+        return 24
+    if granularity == "monthly":
+        return calendar.monthrange(timestamp.year, timestamp.month)[1] * 24
+    return (366 if calendar.isleap(timestamp.year) else 365) * 24
+
+
+def _timestamp_boundary(
+    series: pd.Series,
+    value: date | pd.Timestamp,
+) -> pd.Timestamp:
+    timestamp = pd.Timestamp(value)
+    timezone = series.dt.tz
+    if timezone is not None and timestamp.tzinfo is None:
+        timestamp = timestamp.tz_localize(timezone)
+    return timestamp
 
 
 def _ordered_metrics(columns: list[str]) -> list[str]:
