@@ -171,6 +171,30 @@ st.markdown(
             padding: 1.05rem 1.15rem;
             box-shadow: 0 8px 24px rgba(20, 61, 64, .05);
         }
+        .st-key-output_kpis {
+            background: rgba(255, 255, 255, .92);
+            border-color: var(--line) !important;
+            border-radius: 18px;
+            padding: .9rem 1rem 1rem;
+            box-shadow: 0 6px 18px rgba(20, 61, 64, .04);
+        }
+        .st-key-output_kpis [data-testid="stMetric"] {
+            min-height: 5rem;
+            padding: .65rem .75rem;
+            background: #f7fbfb;
+            border-color: rgba(20, 61, 64, .12);
+            border-radius: 12px;
+        }
+        .st-key-output_kpis [data-testid="stMetricLabel"] p {
+            color: var(--muted);
+            font-size: .75rem;
+            line-height: 1.2;
+        }
+        .st-key-output_kpis [data-testid="stMetricValue"] {
+            color: var(--ink);
+            font-size: 1.45rem;
+            line-height: 1.15;
+        }
         .process-card {
             min-height: 20.25rem;
             padding: 1.35rem 1.45rem;
@@ -489,7 +513,6 @@ timestamps = pd.to_datetime(result.hourly["din_instante"], errors="coerce").drop
 data_min = timestamps.min().date()
 data_max = timestamps.max().date()
 
-metrics_placeholder = st.empty()
 table_column, settings_column = st.columns([1.7, 1], gap="large")
 
 with settings_column:
@@ -593,17 +616,34 @@ with settings_column:
             "mostrados na tabela."
         )
 
-if not summary.empty:
-    complete_periods = int(
-        summary["Status do período"].eq("Completo").sum()
-    )
-    coverage = float(summary["Cobertura (%)"].mean())
-    with metrics_placeholder.container():
-        metric_cards = st.columns(4)
-        metric_cards[0].metric("Discretização", granularity_label)
-        metric_cards[1].metric("Linhas no resultado", len(summary))
-        metric_cards[2].metric("Períodos completos", complete_periods)
-        metric_cards[3].metric("Cobertura média", f"{coverage:.1f}%")
+    if not summary.empty:
+        complete_periods = int(
+            summary["Status do período"].eq("Completo").sum()
+        )
+        coverage = float(summary["Cobertura (%)"].mean())
+        with st.container(border=True, key="output_kpis"):
+            st.markdown(
+                '<div class="panel-kicker">Resumo da saída</div>',
+                unsafe_allow_html=True,
+            )
+            first_metric_row = st.columns(2, gap="small")
+            first_metric_row[0].metric(
+                "Discretização",
+                granularity_label,
+            )
+            first_metric_row[1].metric(
+                "Linhas no resultado",
+                len(summary),
+            )
+            second_metric_row = st.columns(2, gap="small")
+            second_metric_row[0].metric(
+                "Períodos completos",
+                complete_periods,
+            )
+            second_metric_row[1].metric(
+                "Cobertura média",
+                f"{coverage:.1f}%",
+            )
 
 with table_column:
     st.subheader(GRANULARITY_TITLES[granularity])
