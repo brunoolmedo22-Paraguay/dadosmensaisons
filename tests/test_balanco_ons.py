@@ -9,7 +9,6 @@ import pandas as pd
 
 from balanco_ons import (
     CSV_EXPORT_COLUMNS,
-    SUBSYSTEM_LABELS,
     WorkbookError,
     build_csv_export,
     build_granular_csv_export,
@@ -76,20 +75,7 @@ class ProcessingTests(unittest.TestCase):
         self.assertEqual(january["Geração hidráulica (MWmed)"], 150.0)
         self.assertEqual(january["Carga (MWmed)"], 600.0)
         self.assertEqual(january["Horas com dados"], 2)
-        self.assertEqual(len(result.hourly), 4)
-        self.assertEqual(
-            result.subsystem_options,
-            [SUBSYSTEM_LABELS["SIN"], SUBSYSTEM_LABELS["N"]],
-        )
-        north = result.hourly.loc[
-            result.hourly["Subsistema"].eq(SUBSYSTEM_LABELS["N"])
-        ]
-        self.assertEqual(len(north), 1)
-        self.assertEqual(float(north.iloc[0]["val_carga"]), 999.0)
-        self.assertEqual(
-            int(result.file_report.iloc[0]["Registros horários"]),
-            4,
-        )
+        self.assertEqual(len(result.hourly), 3)
 
     def test_filename_year_is_validated_against_internal_dates(self) -> None:
         frame = pd.DataFrame(
@@ -234,26 +220,6 @@ class ProcessingTests(unittest.TestCase):
         self.assertEqual(exported.iloc[0]["Data"], "28/07/2026")
         self.assertNotIn("Cobertura (%)", exported.columns)
         self.assertIn("Geração hidráulica (MWmed)", exported.columns)
-
-    def test_granular_csv_respects_selected_metrics(self) -> None:
-        daily = pd.DataFrame(
-            {
-                "Data": [pd.Timestamp("2026-07-28").date()],
-                "Geração solar (MWmed)": [12_000.0],
-                "Carga (MWmed)": [80_000.0],
-            }
-        )
-
-        exported = build_granular_csv_export(
-            daily,
-            "daily",
-            metric_columns=["Geração solar (MWmed)", "Carga (MWmed)"],
-        )
-
-        self.assertEqual(
-            exported.columns.tolist(),
-            ["Data", "Geração solar (MWmed)", "Carga (MWmed)"],
-        )
 
 
 if __name__ == "__main__":
