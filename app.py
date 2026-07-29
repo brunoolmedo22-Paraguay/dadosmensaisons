@@ -138,9 +138,6 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "step_3_copy": (
             "Limpa os registros horários e os deixa prontos para análise e CSV."
         ),
-        "process_foot": (
-            "Nenhum upload manual · Arquivos temporários eliminados ao final"
-        ),
         "unexpected_error": (
             "Ocorreu um erro inesperado durante o download ou processamento: {error}"
         ),
@@ -235,9 +232,6 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "step_3_title": "Preparar la serie del SIN",
         "step_3_copy": (
             "Limpia los registros horarios y los deja listos para el análisis y el CSV."
-        ),
-        "process_foot": (
-            "Sin carga manual · Archivos temporales eliminados al finalizar"
         ),
         "unexpected_error": (
             "Se produjo un error inesperado durante la descarga o el procesamiento: "
@@ -468,14 +462,14 @@ st.markdown(
             border: none !important;
             border-radius: 18px;
             padding: 1.05rem 1.15rem;
-            box-shadow: 0 8px 24px var(--soft-shadow);
+            box-shadow: none;
         }
         .st-key-output_kpis {
             background: var(--surface);
             border: none !important;
             border-radius: 18px;
             padding: .9rem 1rem 1rem;
-            box-shadow: 0 6px 18px var(--soft-shadow);
+            box-shadow: none;
         }
         .st-key-output_kpis [data-testid="stMetric"] {
             min-height: 5rem;
@@ -558,12 +552,6 @@ st.markdown(
             font-size: .82rem;
             line-height: 1.35;
             margin: 0;
-        }
-        .process-foot {
-            color: var(--brand-readable);
-            font-size: .78rem;
-            font-weight: 650;
-            margin: 1rem 0 0;
         }
         .result-placeholder {
             margin-top: 1.25rem;
@@ -764,7 +752,6 @@ with st.container(border=True, key="download_panel"):
                         <p>{ui_text("step_3_copy")}</p>
                     </div>
                 </div>
-                <p class="process-foot">{ui_text("process_foot")}</p>
             </section>
             """,
             unsafe_allow_html=True,
