@@ -51,18 +51,20 @@ st.markdown(
     """
     <style>
         :root {
-            --ink: #17383b;
-            --muted: #5c7072;
+            --ink: var(--text-color);
+            --muted: color-mix(in srgb, var(--text-color) 68%, transparent);
             --brand: #006b70;
             --brand-dark: #004e52;
+            --brand-readable: color-mix(in srgb, var(--brand) 72%, var(--text-color));
             --accent: #e2ad21;
-            --surface: #ffffff;
-            --line: #dce7e6;
+            --surface: var(--secondary-background-color);
+            --line: color-mix(in srgb, var(--text-color) 16%, transparent);
+            --soft-shadow: color-mix(in srgb, #143d40 16%, transparent);
         }
         .stApp {
             background:
                 radial-gradient(circle at 90% -10%, rgba(0, 107, 112, .12), transparent 31rem),
-                #f6f8f8;
+                var(--background-color);
         }
         [data-testid="stSidebar"] {
             border-right: 1px solid var(--line);
@@ -104,7 +106,7 @@ st.markdown(
             border-radius: 16px;
             min-height: 9.2rem;
             padding: 1.25rem;
-            box-shadow: 0 4px 16px rgba(20, 61, 64, .04);
+            box-shadow: 0 4px 16px var(--soft-shadow);
         }
         .step-number {
             display: inline-grid;
@@ -128,7 +130,7 @@ st.markdown(
             margin: 0;
         }
         [data-testid="stMetric"] {
-            background: rgba(255, 255, 255, .88);
+            background: var(--surface);
             border: 1px solid var(--line);
             border-radius: 14px;
             padding: .85rem 1rem;
@@ -149,7 +151,7 @@ st.markdown(
             font-size: .83rem;
         }
         .panel-kicker {
-            color: var(--brand);
+            color: var(--brand-readable);
             font-size: .72rem;
             font-weight: 750;
             letter-spacing: .11em;
@@ -157,32 +159,36 @@ st.markdown(
             margin-bottom: .2rem;
         }
         .st-key-download_panel {
-            background: rgba(255, 255, 255, .92);
+            background: var(--surface);
             border-color: var(--line) !important;
             border-radius: 18px;
             min-height: 20.25rem;
             padding: 1.15rem 1.25rem;
-            box-shadow: 0 8px 24px rgba(20, 61, 64, .06);
+            box-shadow: 0 8px 24px var(--soft-shadow);
         }
         .st-key-output_panel {
-            background: rgba(255, 255, 255, .92);
+            background: var(--surface);
             border-color: var(--line) !important;
             border-radius: 18px;
             padding: 1.05rem 1.15rem;
-            box-shadow: 0 8px 24px rgba(20, 61, 64, .05);
+            box-shadow: 0 8px 24px var(--soft-shadow);
         }
         .st-key-output_kpis {
-            background: rgba(255, 255, 255, .92);
+            background: var(--surface);
             border-color: var(--line) !important;
             border-radius: 18px;
             padding: .9rem 1rem 1rem;
-            box-shadow: 0 6px 18px rgba(20, 61, 64, .04);
+            box-shadow: 0 6px 18px var(--soft-shadow);
         }
         .st-key-output_kpis [data-testid="stMetric"] {
             min-height: 5rem;
             padding: .65rem .75rem;
-            background: #f7fbfb;
-            border-color: rgba(20, 61, 64, .12);
+            background: color-mix(
+                in srgb,
+                var(--secondary-background-color) 82%,
+                var(--background-color)
+            );
+            border-color: var(--line);
             border-radius: 12px;
         }
         .st-key-output_kpis [data-testid="stMetricLabel"] p {
@@ -196,11 +202,11 @@ st.markdown(
             line-height: 1.15;
         }
         .st-key-results_panel {
-            background: rgba(255, 255, 255, .92);
+            background: var(--surface);
             border-color: var(--line) !important;
             border-radius: 18px;
             padding: 1.1rem 1.15rem 1.2rem;
-            box-shadow: 0 8px 24px rgba(20, 61, 64, .05);
+            box-shadow: 0 8px 24px var(--soft-shadow);
             margin-top: .35rem;
         }
         .process-card {
@@ -208,9 +214,12 @@ st.markdown(
             padding: 1.35rem 1.45rem;
             border: 1px solid rgba(0, 107, 112, .20);
             border-radius: 18px;
-            background:
-                linear-gradient(145deg, rgba(226, 246, 244, .92), rgba(255, 255, 255, .96));
-            box-shadow: 0 8px 24px rgba(20, 61, 64, .06);
+            background: linear-gradient(
+                145deg,
+                color-mix(in srgb, var(--brand) 10%, var(--secondary-background-color)),
+                var(--secondary-background-color)
+            );
+            box-shadow: 0 8px 24px var(--soft-shadow);
         }
         .process-card h2 {
             color: var(--ink);
@@ -254,7 +263,7 @@ st.markdown(
             margin: 0;
         }
         .process-foot {
-            color: var(--brand-dark);
+            color: var(--brand-readable);
             font-size: .78rem;
             font-weight: 650;
             margin: 1rem 0 0;
@@ -264,9 +273,13 @@ st.markdown(
             padding: 1.7rem;
             color: var(--muted);
             text-align: center;
-            border: 1px dashed #bfd1d0;
+            border: 1px dashed var(--line);
             border-radius: 16px;
-            background: rgba(255, 255, 255, .58);
+            background: color-mix(
+                in srgb,
+                var(--secondary-background-color) 72%,
+                transparent
+            );
         }
         .result-placeholder h3 {
             color: var(--ink);
