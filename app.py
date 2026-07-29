@@ -373,15 +373,15 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-controls_column, explanation_column = st.columns(2, gap="large")
+default_start = max(FIRST_AVAILABLE_YEAR, CURRENT_YEAR - 4)
+with st.container(border=True, key="download_panel"):
+    st.markdown(
+        '<div class="panel-kicker">Obtenção automática</div>',
+        unsafe_allow_html=True,
+    )
+    left_column, right_column = st.columns([1.15, 1], gap="large")
 
-with controls_column:
-    default_start = max(FIRST_AVAILABLE_YEAR, CURRENT_YEAR - 4)
-    with st.container(border=True, key="download_panel"):
-        st.markdown(
-            '<div class="panel-kicker">Obtenção automática</div>',
-            unsafe_allow_html=True,
-        )
+    with left_column:
         st.subheader("Selecione o período")
         st.caption(
             "Escolha o primeiro e o último ano. Os dois extremos serão incluídos."
@@ -400,46 +400,46 @@ with controls_column:
             "Fonte oficial do ONS · Formato Parquet · Processamento temporário"
         )
 
-start_year, end_year = (int(value) for value in selected_period)
+    start_year, end_year = (int(value) for value in selected_period)
 
-with explanation_column:
-    st.markdown(
-        f"""
-        <section class="process-card">
-            <div class="panel-kicker">Fluxo da plataforma</div>
-            <h2>O que será feito?</h2>
-            <p class="process-lead">
-                Ao clicar no botão, a plataforma executará todo o processo
-                automaticamente para o período <strong>{start_year}–{end_year}</strong>.
-            </p>
-            <div class="process-step">
-                <div class="process-number">1</div>
-                <div>
-                    <strong>Localizar os arquivos</strong>
-                    <p>Consulta o catálogo oficial e identifica um Parquet para cada ano.</p>
+    with right_column:
+        st.markdown(
+            f"""
+            <section class="process-card">
+                <div class="panel-kicker">Fluxo da plataforma</div>
+                <h2>O que será feito?</h2>
+                <p class="process-lead">
+                    Ao clicar no botão, a plataforma executará todo o processo
+                    automaticamente para o período <strong>{start_year}–{end_year}</strong>.
+                </p>
+                <div class="process-step">
+                    <div class="process-number">1</div>
+                    <div>
+                        <strong>Localizar os arquivos</strong>
+                        <p>Consulta o catálogo oficial e identifica um Parquet para cada ano.</p>
+                    </div>
                 </div>
-            </div>
-            <div class="process-step">
-                <div class="process-number">2</div>
-                <div>
-                    <strong>Baixar e validar</strong>
-                    <p>Salva os arquivos temporariamente e verifica o conteúdo recebido.</p>
+                <div class="process-step">
+                    <div class="process-number">2</div>
+                    <div>
+                        <strong>Baixar e validar</strong>
+                        <p>Salva os arquivos temporariamente e verifica o conteúdo recebido.</p>
+                    </div>
                 </div>
-            </div>
-            <div class="process-step">
-                <div class="process-number">3</div>
-                <div>
-                    <strong>Preparar a série do SIN</strong>
-                    <p>Limpa os registros horários e os deixa prontos para análise e CSV.</p>
+                <div class="process-step">
+                    <div class="process-number">3</div>
+                    <div>
+                        <strong>Preparar a série do SIN</strong>
+                        <p>Limpa os registros horários e os deixa prontos para análise e CSV.</p>
+                    </div>
                 </div>
-            </div>
-            <p class="process-foot">
-                Nenhum upload manual · Arquivos temporários eliminados ao final
-            </p>
-        </section>
-        """,
-        unsafe_allow_html=True,
-    )
+                <p class="process-foot">
+                    Nenhum upload manual · Arquivos temporários eliminados ao final
+                </p>
+            </section>
+            """,
+            unsafe_allow_html=True,
+        )
 
 download_error: str | None = None
 
