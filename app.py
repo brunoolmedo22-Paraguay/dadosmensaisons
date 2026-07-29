@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import re
+import unicodedata
 
 from datetime import date, timedelta
 from pathlib import Path
@@ -13,8 +15,10 @@ import streamlit as st
 from balanco_ons import (
     Granularity,
     ProcessingResult,
+    available_subsystems,
     build_granular_csv_export,
     build_period_summary,
+    filter_hourly_by_subsystem,
     process_parquet_files,
 )
 from ons_download import ONSDownloadError, download_parquet_years
@@ -51,16 +55,16 @@ GRANULARITY_LABELS: dict[str, dict[Granularity, str]] = {
 }
 GRANULARITY_TITLES: dict[str, dict[Granularity, str]] = {
     "PT": {
-        "hourly": "Série horária do SIN",
-        "daily": "Médias diárias do SIN",
-        "monthly": "Médias mensais do SIN",
-        "yearly": "Médias anuais do SIN",
+        "hourly": "Série horária — {subsystem}",
+        "daily": "Médias diárias — {subsystem}",
+        "monthly": "Médias mensais — {subsystem}",
+        "yearly": "Médias anuais — {subsystem}",
     },
     "ES": {
-        "hourly": "Serie horaria del SIN",
-        "daily": "Promedios diarios del SIN",
-        "monthly": "Promedios mensuales del SIN",
-        "yearly": "Promedios anuales del SIN",
+        "hourly": "Serie horaria — {subsystem}",
+        "daily": "Promedios diarios — {subsystem}",
+        "monthly": "Promedios mensuales — {subsystem}",
+        "yearly": "Promedios anuales — {subsystem}",
     },
 }
 CHART_TITLES: dict[str, dict[Granularity, str]] = {
@@ -154,8 +158,10 @@ UI_TEXT: dict[str, dict[str, str]] = {
             "{megabytes:.1f} MB."
         ),
         "output_kicker": "Configuração da saída",
-        "output_title": "Discretização e CSV",
+        "output_title": "Subsistema, discretização e CSV",
+        "subsystem_selector": "Subsistema",
         "granularity_selector": "Discretização dos dados",
+        "no_subsystems": "Nenhum subsistema foi encontrado nos arquivos processados.",
         "start_date": "Data inicial",
         "end_date": "Data final",
         "invalid_dates": "A data inicial deve ser anterior à data final.",
@@ -251,8 +257,10 @@ UI_TEXT: dict[str, dict[str, str]] = {
             "{megabytes:.1f} MB."
         ),
         "output_kicker": "Configuración de salida",
-        "output_title": "Discretización y CSV",
+        "output_title": "Subsistema, discretización y CSV",
+        "subsystem_selector": "Subsistema",
         "granularity_selector": "Discretización de los datos",
+        "no_subsystems": "No se encontraron subsistemas en los archivos procesados.",
         "start_date": "Fecha inicial",
         "end_date": "Fecha final",
         "invalid_dates": "La fecha inicial debe ser anterior a la fecha final.",
@@ -598,6 +606,13 @@ with language_column:
 language = st.session_state["ui_language"]
 
 
+def subsystem_slug(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value)
+    ascii_value = normalized.encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^a-z0-9]+", "_", ascii_value.lower()).strip("_")
+    return slug or "subsistema"
+
+
 def csv_bytes(data: pd.DataFrame, granularity: Granularity) -> bytes:
     return build_granular_csv_export(data, granularity).to_csv(
         index=False,
@@ -765,6 +780,7 @@ if download_clicked:
     st.session_state.pop("ons_result", None)
     st.session_state.pop("ons_period", None)
     st.session_state.pop("ons_download_bytes", None)
+    st.session_state.pop("subsystem_value", None)
     for state_key in list(st.session_state):
         if str(state_key).startswith(
             ("analysis_start_", "analysis_end_")
@@ -827,9 +843,14 @@ st.success(
 )
 
 metric_columns = result.metric_columns
-timestamps = pd.to_datetime(result.hourly["din_instante"], errors="coerce").dropna()
-data_min = timestamps.min().date()
-data_max = timestamps.max().date()
+subsystem_items = available_subsystems(result.hourly)
+if not subsystem_items:
+    st.error(ui_text("no_subsystems"))
+    st.stop()
+subsystem_labels = dict(subsystem_items)
+subsystem_keys = [key for key, _ in subsystem_items]
+if st.session_state.get("subsystem_value") not in subsystem_keys:
+    st.session_state.pop("subsystem_value", None)
 
 with st.container(border=True, key="results_panel"):
     table_column, settings_column = st.columns([1.7, 1], gap="large")
@@ -841,6 +862,26 @@ with st.container(border=True, key="results_panel"):
                 unsafe_allow_html=True,
             )
             st.subheader(ui_text("output_title"))
+            subsystem_key = st.selectbox(
+                ui_text("subsystem_selector"),
+                options=subsystem_keys,
+                index=subsystem_keys.index("SIN") if "SIN" in subsystem_keys else 0,
+                key="subsystem_value",
+                format_func=lambda value: subsystem_labels[value],
+            )
+            selected_subsystem_label = subsystem_labels[subsystem_key]
+            selected_hourly = filter_hourly_by_subsystem(
+                result.hourly, subsystem_key
+            )
+            timestamps = pd.to_datetime(
+                selected_hourly["din_instante"], errors="coerce"
+            ).dropna()
+            if timestamps.empty:
+                st.warning(ui_text("no_data_config"))
+                st.stop()
+            data_min = timestamps.min().date()
+            data_max = timestamps.max().date()
+
             granularity = st.selectbox(
                 ui_text("granularity_selector"),
                 options=GRANULARITIES,
@@ -861,7 +902,8 @@ with st.container(border=True, key="results_panel"):
                     data_max - timedelta(days=suggested_days),
                 )
                 date_key = (
-                    f"{loaded_period[0]}_{loaded_period[1]}_{granularity}"
+                    f"{loaded_period[0]}_{loaded_period[1]}_"
+                    f"{subsystem_slug(subsystem_key)}_{granularity}"
                 )
                 start_column, end_column = st.columns(2, gap="small")
                 with start_column:
@@ -894,7 +936,7 @@ with st.container(border=True, key="results_panel"):
 
             if valid_dates:
                 summary = build_period_summary(
-                    result.hourly,
+                    selected_hourly,
                     granularity=granularity,
                     start_date=analysis_start,
                     end_date=analysis_end,
@@ -914,7 +956,8 @@ with st.container(border=True, key="results_panel"):
                 export_period = f"{loaded_period[0]}-{loaded_period[1]}"
 
             export_name = (
-                f"balanco_sin_{GRANULARITY_SLUGS[granularity]}_"
+                f"balanco_{subsystem_slug(subsystem_key)}_"
+                f"{GRANULARITY_SLUGS[granularity]}_"
                 f"{export_period}.csv"
             )
             st.download_button(
@@ -964,7 +1007,11 @@ with st.container(border=True, key="results_panel"):
                 )
 
     with table_column:
-        st.subheader(GRANULARITY_TITLES[language][granularity])
+        st.subheader(
+            GRANULARITY_TITLES[language][granularity].format(
+                subsystem=selected_subsystem_label
+            )
+        )
         if granularity in {"hourly", "daily"} and analysis_start and analysis_end:
             table_note = ui_text("period_shown").format(
                 start=f"{analysis_start:%d/%m/%Y}",
@@ -981,7 +1028,10 @@ with st.container(border=True, key="results_panel"):
         if summary.empty:
             st.info(ui_text("adjust_config"))
         else:
-            display_table(summary, metric_columns)
+            visible_metric_columns = [
+                column for column in metric_columns if column in summary.columns
+            ]
+            display_table(summary, visible_metric_columns)
 
 chart_column, report_column = st.columns([1.55, 1], gap="large")
 with chart_column:
@@ -991,7 +1041,7 @@ with chart_column:
     else:
         chart_metric = st.selectbox(
             ui_text("metric_selector"),
-            options=metric_columns,
+            options=visible_metric_columns,
             index=0,
             key="chart_metric",
         )
