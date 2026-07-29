@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+
 from datetime import date, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -21,8 +23,9 @@ from ons_download import ONSDownloadError, download_parquet_years
 FIRST_AVAILABLE_YEAR = 2000
 CURRENT_YEAR = date.today().year
 HERO_LOGO_PATH = Path(__file__).parent / "assets" / "logo_contorno_transparente.svg"
-HERO_LOGO_SVG = (
-    HERO_LOGO_PATH.read_text(encoding="utf-8")
+HERO_LOGO_DATA_URI = (
+    "data:image/svg+xml;base64,"
+    + base64.b64encode(HERO_LOGO_PATH.read_bytes()).decode("ascii")
     if HERO_LOGO_PATH.exists()
     else ""
 )
@@ -351,7 +354,7 @@ st.markdown(
             justify-content: center;
             min-height: 9rem;
         }
-        .hero-logo svg {
+        .hero-logo img {
             display: block;
             width: min(100%, 24rem);
             height: auto;
@@ -386,7 +389,7 @@ st.markdown(
                 min-height: auto;
                 padding-top: .35rem;
             }
-            .hero-logo svg {
+            .hero-logo img {
                 width: min(72%, 18rem);
                 max-height: 9rem;
             }
@@ -698,7 +701,7 @@ st.markdown(
                 <p class="hero-copy">{ui_text("hero_copy")}</p>
             </div>
             <div class="hero-logo" aria-hidden="true">
-                {HERO_LOGO_SVG}
+                <img src="{HERO_LOGO_DATA_URI}" alt="" />
             </div>
         </div>
     </section>
