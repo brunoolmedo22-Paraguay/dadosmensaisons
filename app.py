@@ -20,17 +20,63 @@ from ons_download import ONSDownloadError, download_parquet_years
 
 FIRST_AVAILABLE_YEAR = 2000
 CURRENT_YEAR = date.today().year
-GRANULARITY_OPTIONS: dict[str, Granularity] = {
-    "Horária": "hourly",
-    "Diária": "daily",
-    "Mensal": "monthly",
-    "Anual": "yearly",
+GRANULARITIES: tuple[Granularity, ...] = (
+    "hourly",
+    "daily",
+    "monthly",
+    "yearly",
+)
+GRANULARITY_LABELS: dict[str, dict[Granularity, str]] = {
+    "PT": {
+        "hourly": "Horária",
+        "daily": "Diária",
+        "monthly": "Mensal",
+        "yearly": "Anual",
+    },
+    "ES": {
+        "hourly": "Horaria",
+        "daily": "Diaria",
+        "monthly": "Mensual",
+        "yearly": "Anual",
+    },
 }
-GRANULARITY_TITLES: dict[Granularity, str] = {
-    "hourly": "Série horária do SIN",
-    "daily": "Médias diárias do SIN",
-    "monthly": "Médias mensais do SIN",
-    "yearly": "Médias anuais do SIN",
+GRANULARITY_TITLES: dict[str, dict[Granularity, str]] = {
+    "PT": {
+        "hourly": "Série horária do SIN",
+        "daily": "Médias diárias do SIN",
+        "monthly": "Médias mensais do SIN",
+        "yearly": "Médias anuais do SIN",
+    },
+    "ES": {
+        "hourly": "Serie horaria del SIN",
+        "daily": "Promedios diarios del SIN",
+        "monthly": "Promedios mensuales del SIN",
+        "yearly": "Promedios anuales del SIN",
+    },
+}
+CHART_TITLES: dict[str, dict[Granularity, str]] = {
+    "PT": {
+        "hourly": "Evolução horária",
+        "daily": "Evolução diária",
+        "monthly": "Comparação mensal entre anos",
+        "yearly": "Evolução anual",
+    },
+    "ES": {
+        "hourly": "Evolución horaria",
+        "daily": "Evolución diaria",
+        "monthly": "Comparación mensual entre años",
+        "yearly": "Evolución anual",
+    },
+}
+MONTH_LABELS: dict[str, list[str]] = {
+    "PT": [
+        "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
+        "Jul", "Ago", "Set", "Out", "Nov", "Dez",
+    ],
+    "ES": [
+        "Ene", "Feb", "Mar", "Abr", "May", "Jun",
+        "Jul", "Ago", "Sep", "Oct", "Nov", "Dic",
+    ],
 }
 GRANULARITY_SLUGS: dict[Granularity, str] = {
     "hourly": "horario",
@@ -38,10 +84,214 @@ GRANULARITY_SLUGS: dict[Granularity, str] = {
     "monthly": "mensal",
     "yearly": "anual",
 }
+UI_TEXT: dict[str, dict[str, str]] = {
+    "PT": {
+        "hero_kicker": "ONS · Consolidação histórica",
+        "hero_title": "Balanço Energético do SIN",
+        "hero_copy": (
+            "Escolha o período e transforme automaticamente os dados horários "
+            "publicados pelo ONS na discretização mais adequada para sua análise."
+        ),
+        "empty_title": "Os resultados aparecerão aqui",
+        "empty_copy": (
+            "Defina o período acima e clique em <strong>Baixar dados do ONS</strong> "
+            "para iniciar a análise."
+        ),
+        "progress_catalog": "Consultando o catálogo do ONS...",
+        "progress_file": "Arquivo de {year} concluído ({completed}/{total})...",
+        "progress_validate": "Validando e consolidando os dados...",
+        "progress_done": "Processamento concluído.",
+        "auto_kicker": "Obtenção automática",
+        "select_period": "Selecione o período",
+        "select_period_copy": (
+            "Escolha o primeiro e o último ano. Os dois extremos serão incluídos."
+        ),
+        "year_range": "Ano inicial e ano final",
+        "download_ons": "Baixar dados do ONS",
+        "source_note": (
+            "Fonte oficial do ONS · Formato Parquet · Processamento temporário"
+        ),
+        "flow_kicker": "Fluxo da plataforma",
+        "flow_title": "O que será feito?",
+        "flow_lead": (
+            "Ao clicar no botão, a plataforma executará todo o processo "
+            "automaticamente para o período <strong>{start_year}–{end_year}</strong>."
+        ),
+        "step_1_title": "Localizar os arquivos",
+        "step_1_copy": (
+            "Consulta o catálogo oficial e identifica um Parquet para cada ano."
+        ),
+        "step_2_title": "Baixar e validar",
+        "step_2_copy": (
+            "Salva os arquivos temporariamente e verifica o conteúdo recebido."
+        ),
+        "step_3_title": "Preparar a série do SIN",
+        "step_3_copy": (
+            "Limpa os registros horários e os deixa prontos para análise e CSV."
+        ),
+        "process_foot": (
+            "Nenhum upload manual · Arquivos temporários eliminados ao final"
+        ),
+        "unexpected_error": (
+            "Ocorreu um erro inesperado durante o download ou processamento: {error}"
+        ),
+        "stale_results": (
+            "Os resultados exibidos ainda correspondem a **{start}–{end}**. "
+            "Clique em **{button}** para processar o novo intervalo selecionado."
+        ),
+        "no_result": (
+            "Nenhum resultado pôde ser gerado. Verifique o período selecionado "
+            "e as mensagens apresentadas acima."
+        ),
+        "processed_success": (
+            "Dados de **{start}–{end}** processados: {files} arquivo(s) Parquet, "
+            "{megabytes:.1f} MB."
+        ),
+        "output_kicker": "Configuração da saída",
+        "output_title": "Discretização e CSV",
+        "granularity_selector": "Discretização dos dados",
+        "start_date": "Data inicial",
+        "end_date": "Data final",
+        "invalid_dates": "A data inicial deve ser anterior à data final.",
+        "calendar_note": (
+            "Use os dois calendários para limitar o volume exibido e exportado."
+        ),
+        "full_interval": (
+            "Todo o intervalo baixado, de {start} a {end}, será incluído."
+        ),
+        "no_data_config": "Não há dados para a configuração selecionada.",
+        "download_csv": "Baixar dados consolidados em CSV",
+        "csv_note": (
+            "O CSV corresponde exatamente à discretização e ao período mostrados "
+            "na tabela."
+        ),
+        "summary_kicker": "Resumo da saída",
+        "discretization": "Discretização",
+        "result_rows": "Linhas no resultado",
+        "complete_periods": "Períodos completos",
+        "average_coverage": "Cobertura média",
+        "period_shown": "Período exibido: {start} a {end}.",
+        "values_note": "Valores expressos como potência média em MWmed.",
+        "adjust_config": (
+            "Ajuste a configuração ao lado para visualizar os dados."
+        ),
+        "chart_empty": "O gráfico será exibido quando houver dados na tabela.",
+        "metric_selector": "Grandeza",
+        "x_month": "Mês",
+        "x_datetime": "Data e hora",
+        "x_date": "Data",
+        "x_year": "Ano",
+        "processed_files": "Arquivos processados",
+    },
+    "ES": {
+        "hero_kicker": "ONS · Consolidación histórica",
+        "hero_title": "Balance Energético del SIN",
+        "hero_copy": (
+            "Seleccione el período y transforme automáticamente los datos horarios "
+            "publicados por el ONS en la discretización más adecuada para su análisis."
+        ),
+        "empty_title": "Los resultados aparecerán aquí",
+        "empty_copy": (
+            "Defina el período anterior y pulse <strong>Descargar datos del ONS</strong> "
+            "para iniciar el análisis."
+        ),
+        "progress_catalog": "Consultando el catálogo del ONS...",
+        "progress_file": "Archivo de {year} completado ({completed}/{total})...",
+        "progress_validate": "Validando y consolidando los datos...",
+        "progress_done": "Procesamiento finalizado.",
+        "auto_kicker": "Obtención automática",
+        "select_period": "Seleccione el período",
+        "select_period_copy": (
+            "Seleccione el primer y el último año. Ambos extremos serán incluidos."
+        ),
+        "year_range": "Año inicial y año final",
+        "download_ons": "Descargar datos del ONS",
+        "source_note": (
+            "Fuente oficial del ONS · Formato Parquet · Procesamiento temporal"
+        ),
+        "flow_kicker": "Flujo de la plataforma",
+        "flow_title": "¿Qué se hará?",
+        "flow_lead": (
+            "Al pulsar el botón, la plataforma ejecutará automáticamente todo el "
+            "proceso para el período <strong>{start_year}–{end_year}</strong>."
+        ),
+        "step_1_title": "Localizar los archivos",
+        "step_1_copy": (
+            "Consulta el catálogo oficial e identifica un Parquet para cada año."
+        ),
+        "step_2_title": "Descargar y validar",
+        "step_2_copy": (
+            "Guarda temporalmente los archivos y verifica el contenido recibido."
+        ),
+        "step_3_title": "Preparar la serie del SIN",
+        "step_3_copy": (
+            "Limpia los registros horarios y los deja listos para el análisis y el CSV."
+        ),
+        "process_foot": (
+            "Sin carga manual · Archivos temporales eliminados al finalizar"
+        ),
+        "unexpected_error": (
+            "Se produjo un error inesperado durante la descarga o el procesamiento: "
+            "{error}"
+        ),
+        "stale_results": (
+            "Los resultados mostrados todavía corresponden a **{start}–{end}**. "
+            "Pulse **{button}** para procesar el nuevo intervalo seleccionado."
+        ),
+        "no_result": (
+            "No fue posible generar resultados. Verifique el período seleccionado "
+            "y los mensajes mostrados anteriormente."
+        ),
+        "processed_success": (
+            "Datos de **{start}–{end}** procesados: {files} archivo(s) Parquet, "
+            "{megabytes:.1f} MB."
+        ),
+        "output_kicker": "Configuración de salida",
+        "output_title": "Discretización y CSV",
+        "granularity_selector": "Discretización de los datos",
+        "start_date": "Fecha inicial",
+        "end_date": "Fecha final",
+        "invalid_dates": "La fecha inicial debe ser anterior a la fecha final.",
+        "calendar_note": (
+            "Use los dos calendarios para limitar el volumen mostrado y exportado."
+        ),
+        "full_interval": (
+            "Se incluirá todo el intervalo descargado, de {start} a {end}."
+        ),
+        "no_data_config": "No hay datos para la configuración seleccionada.",
+        "download_csv": "Descargar datos consolidados en CSV",
+        "csv_note": (
+            "El CSV corresponde exactamente a la discretización y al período "
+            "mostrados en la tabla."
+        ),
+        "summary_kicker": "Resumen de salida",
+        "discretization": "Discretización",
+        "result_rows": "Filas en el resultado",
+        "complete_periods": "Períodos completos",
+        "average_coverage": "Cobertura promedio",
+        "period_shown": "Período mostrado: {start} a {end}.",
+        "values_note": "Valores expresados como potencia promedio en MWmed.",
+        "adjust_config": (
+            "Ajuste la configuración de la derecha para visualizar los datos."
+        ),
+        "chart_empty": "El gráfico se mostrará cuando haya datos en la tabla.",
+        "metric_selector": "Magnitud",
+        "x_month": "Mes",
+        "x_datetime": "Fecha y hora",
+        "x_date": "Fecha",
+        "x_year": "Año",
+        "processed_files": "Archivos procesados",
+    },
+}
+
+
+def ui_text(key: str) -> str:
+    language = st.session_state.get("ui_language", "PT")
+    return UI_TEXT[language][key]
 
 
 st.set_page_config(
-    page_title="Balanço Energético do SIN",
+    page_title="SIN · ONS",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -222,7 +472,7 @@ st.markdown(
                 color-mix(in srgb, var(--brand) 10%, var(--secondary-background-color)),
                 var(--secondary-background-color)
             );
-            box-shadow: 0 8px 24px var(--soft-shadow);
+            box-shadow: none;
         }
         .process-card h2 {
             color: var(--ink);
@@ -298,6 +548,21 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+if "ui_language" not in st.session_state:
+    st.session_state["ui_language"] = "PT"
+
+language_spacer, language_column = st.columns([8, 1], gap="small")
+with language_column:
+    st.segmented_control(
+        "Idioma",
+        options=("PT", "ES"),
+        key="ui_language",
+        label_visibility="collapsed",
+        width="stretch",
+    )
+
+language = st.session_state["ui_language"]
+
 
 def csv_bytes(data: pd.DataFrame, granularity: Granularity) -> bytes:
     return build_granular_csv_export(data, granularity).to_csv(
@@ -340,13 +605,10 @@ def display_table(data: pd.DataFrame, metrics: Sequence[str]) -> None:
 
 def render_empty_state() -> None:
     st.markdown(
-        """
+        f"""
         <section class="result-placeholder">
-            <h3>Os resultados aparecerão aqui</h3>
-            <p>
-                Defina o período acima e clique em <strong>Baixar dados do ONS</strong>
-                para iniciar a análise.
-            </p>
+            <h3>{ui_text("empty_title")}</h3>
+            <p>{ui_text("empty_copy")}</p>
         </section>
         """,
         unsafe_allow_html=True,
@@ -358,13 +620,15 @@ def obtain_ons_data(
     end_year: int,
 ) -> tuple[ProcessingResult, int]:
     years = list(range(start_year, end_year + 1))
-    progress = st.progress(2, text="Consultando o catálogo do ONS...")
+    progress = st.progress(2, text=ui_text("progress_catalog"))
 
     def update_progress(completed: int, total: int, year: int) -> None:
         percentage = 5 + int(75 * completed / total)
         progress.progress(
             percentage,
-            text=f"Arquivo de {year} concluído ({completed}/{total})...",
+            text=ui_text("progress_file").format(
+                year=year, completed=completed, total=total
+            ),
         )
 
     try:
@@ -374,24 +638,21 @@ def obtain_ons_data(
                 destination=Path(temporary_directory),
                 progress_callback=update_progress,
             )
-            progress.progress(88, text="Validando e consolidando os dados...")
+            progress.progress(88, text=ui_text("progress_validate"))
             result = process_parquet_files(batch.files)
             result.errors = [*batch.errors, *result.errors]
-            progress.progress(100, text="Processamento concluído.")
+            progress.progress(100, text=ui_text("progress_done"))
             return result, batch.total_bytes
     finally:
         progress.empty()
 
 
 st.markdown(
-    """
+    f"""
     <section class="hero">
-        <div class="hero-kicker">ONS · Consolidação histórica</div>
-        <h1 class="hero-title">Balanço Energético do SIN</h1>
-        <p class="hero-copy">
-            Escolha o período e transforme automaticamente os dados horários
-            publicados pelo ONS na discretização mais adequada para sua análise.
-        </p>
+        <div class="hero-kicker">{ui_text("hero_kicker")}</div>
+        <h1 class="hero-title">{ui_text("hero_title")}</h1>
+        <p class="hero-copy">{ui_text("hero_copy")}</p>
     </section>
     """,
     unsafe_allow_html=True,
@@ -400,29 +661,25 @@ st.markdown(
 default_start = max(FIRST_AVAILABLE_YEAR, CURRENT_YEAR - 4)
 with st.container(border=True, key="download_panel"):
     st.markdown(
-        '<div class="panel-kicker">Obtenção automática</div>',
+        f'<div class="panel-kicker">{ui_text("auto_kicker")}</div>',
         unsafe_allow_html=True,
     )
     left_column, right_column = st.columns([1.15, 1], gap="large")
 
     with left_column:
-        st.subheader("Selecione o período")
-        st.caption(
-            "Escolha o primeiro e o último ano. Os dois extremos serão incluídos."
-        )
+        st.subheader(ui_text("select_period"))
+        st.caption(ui_text("select_period_copy"))
         selected_period = st.select_slider(
-            "Ano inicial e ano final",
+            ui_text("year_range"),
             options=list(range(FIRST_AVAILABLE_YEAR, CURRENT_YEAR + 1)),
             value=(default_start, CURRENT_YEAR),
         )
         download_clicked = st.button(
-            "Baixar dados do ONS",
+            ui_text("download_ons"),
             type="primary",
             width="stretch",
         )
-        st.caption(
-            "Fonte oficial do ONS · Formato Parquet · Processamento temporário"
-        )
+        st.caption(ui_text("source_note"))
 
     start_year, end_year = (int(value) for value in selected_period)
 
@@ -430,36 +687,33 @@ with st.container(border=True, key="download_panel"):
         st.markdown(
             f"""
             <section class="process-card">
-                <div class="panel-kicker">Fluxo da plataforma</div>
-                <h2>O que será feito?</h2>
+                <div class="panel-kicker">{ui_text("flow_kicker")}</div>
+                <h2>{ui_text("flow_title")}</h2>
                 <p class="process-lead">
-                    Ao clicar no botão, a plataforma executará todo o processo
-                    automaticamente para o período <strong>{start_year}–{end_year}</strong>.
+                    {ui_text("flow_lead").format(start_year=start_year, end_year=end_year)}
                 </p>
                 <div class="process-step">
                     <div class="process-number">1</div>
                     <div>
-                        <strong>Localizar os arquivos</strong>
-                        <p>Consulta o catálogo oficial e identifica um Parquet para cada ano.</p>
+                        <strong>{ui_text("step_1_title")}</strong>
+                        <p>{ui_text("step_1_copy")}</p>
                     </div>
                 </div>
                 <div class="process-step">
                     <div class="process-number">2</div>
                     <div>
-                        <strong>Baixar e validar</strong>
-                        <p>Salva os arquivos temporariamente e verifica o conteúdo recebido.</p>
+                        <strong>{ui_text("step_2_title")}</strong>
+                        <p>{ui_text("step_2_copy")}</p>
                     </div>
                 </div>
                 <div class="process-step">
                     <div class="process-number">3</div>
                     <div>
-                        <strong>Preparar a série do SIN</strong>
-                        <p>Limpa os registros horários e os deixa prontos para análise e CSV.</p>
+                        <strong>{ui_text("step_3_title")}</strong>
+                        <p>{ui_text("step_3_copy")}</p>
                     </div>
                 </div>
-                <p class="process-foot">
-                    Nenhum upload manual · Arquivos temporários eliminados ao final
-                </p>
+                <p class="process-foot">{ui_text("process_foot")}</p>
             </section>
             """,
             unsafe_allow_html=True,
@@ -484,10 +738,7 @@ if download_clicked:
     except ONSDownloadError as exc:
         download_error = str(exc)
     except Exception as exc:
-        download_error = (
-            "Ocorreu um erro inesperado durante o download ou processamento: "
-            f"{exc}"
-        )
+        download_error = ui_text("unexpected_error").format(error=exc)
     else:
         st.session_state["ons_result"] = downloaded_result
         st.session_state["ons_period"] = (start_year, end_year)
@@ -506,9 +757,11 @@ if result is None:
 if loaded_period != (start_year, end_year):
     loaded_start, loaded_end = loaded_period
     st.info(
-        f"Os resultados exibidos ainda correspondem a **{loaded_start}–{loaded_end}**. "
-        "Clique em **Baixar dados do ONS** para processar o novo intervalo "
-        "selecionado."
+        ui_text("stale_results").format(
+            start=loaded_start,
+            end=loaded_end,
+            button=ui_text("download_ons"),
+        )
     )
 
 for message in result.errors:
@@ -517,10 +770,7 @@ for message in result.warnings:
     st.warning(message)
 
 if result.hourly.empty:
-    st.error(
-        "Nenhum resultado pôde ser gerado. Verifique o período selecionado "
-        "e as mensagens apresentadas acima."
-    )
+    st.error(ui_text("no_result"))
     st.stop()
 
 downloaded_files = len(result.file_report)
@@ -528,8 +778,12 @@ downloaded_megabytes = (
     float(st.session_state.get("ons_download_bytes", 0)) / (1024 * 1024)
 )
 st.success(
-    f"Dados de **{loaded_period[0]}–{loaded_period[1]}** processados: "
-    f"{downloaded_files} arquivo(s) Parquet, {downloaded_megabytes:.1f} MB."
+    ui_text("processed_success").format(
+        start=loaded_period[0],
+        end=loaded_period[1],
+        files=downloaded_files,
+        megabytes=downloaded_megabytes,
+    )
 )
 
 metric_columns = result.metric_columns
@@ -543,17 +797,18 @@ with st.container(border=True, key="results_panel"):
     with settings_column:
         with st.container(border=True, key="output_panel"):
             st.markdown(
-                '<div class="panel-kicker">Configuração da saída</div>',
+                f'<div class="panel-kicker">{ui_text("output_kicker")}</div>',
                 unsafe_allow_html=True,
             )
-            st.subheader("Discretização e CSV")
-            granularity_label = st.selectbox(
-                "Discretização dos dados",
-                options=list(GRANULARITY_OPTIONS),
+            st.subheader(ui_text("output_title"))
+            granularity = st.selectbox(
+                ui_text("granularity_selector"),
+                options=GRANULARITIES,
                 index=2,
-                key="granularity_label",
+                key="granularity_value",
+                format_func=lambda value: GRANULARITY_LABELS[language][value],
             )
-            granularity = GRANULARITY_OPTIONS[granularity_label]
+            granularity_label = GRANULARITY_LABELS[language][granularity]
 
             analysis_start: date | None = None
             analysis_end: date | None = None
@@ -571,7 +826,7 @@ with st.container(border=True, key="results_panel"):
                 start_column, end_column = st.columns(2, gap="small")
                 with start_column:
                     analysis_start = st.date_input(
-                        "Data inicial",
+                        ui_text("start_date"),
                         value=suggested_start,
                         min_value=data_min,
                         max_value=data_max,
@@ -579,23 +834,22 @@ with st.container(border=True, key="results_panel"):
                     )
                 with end_column:
                     analysis_end = st.date_input(
-                        "Data final",
+                        ui_text("end_date"),
                         value=data_max,
                         min_value=data_min,
                         max_value=data_max,
                         key=f"analysis_end_{date_key}",
                     )
                 if analysis_start > analysis_end:
-                    st.error("A data inicial deve ser anterior à data final.")
+                    st.error(ui_text("invalid_dates"))
                     valid_dates = False
                 else:
-                    st.caption(
-                        "Use os dois calendários para limitar o volume exibido e exportado."
-                    )
+                    st.caption(ui_text("calendar_note"))
             else:
                 st.info(
-                    f"Todo o intervalo baixado, de {loaded_period[0]} a "
-                    f"{loaded_period[1]}, será incluído."
+                    ui_text("full_interval").format(
+                        start=loaded_period[0], end=loaded_period[1]
+                    )
                 )
 
             if valid_dates:
@@ -610,7 +864,7 @@ with st.container(border=True, key="results_panel"):
 
             st.divider()
             if summary.empty:
-                st.warning("Não há dados para a configuração selecionada.")
+                st.warning(ui_text("no_data_config"))
 
             if analysis_start is not None and analysis_end is not None:
                 export_period = (
@@ -624,7 +878,7 @@ with st.container(border=True, key="results_panel"):
                 f"{export_period}.csv"
             )
             st.download_button(
-                "Baixar dados consolidados em CSV",
+                ui_text("download_csv"),
                 data=(
                     csv_bytes(summary, granularity)
                     if not summary.empty
@@ -637,8 +891,7 @@ with st.container(border=True, key="results_panel"):
                 disabled=summary.empty,
             )
             st.caption(
-                "O CSV corresponde exatamente à discretização e ao período "
-                "mostrados na tabela."
+                ui_text("csv_note")
             )
 
         if not summary.empty:
@@ -648,63 +901,56 @@ with st.container(border=True, key="results_panel"):
             coverage = float(summary["Cobertura (%)"].mean())
             with st.container(border=True, key="output_kpis"):
                 st.markdown(
-                    '<div class="panel-kicker">Resumo da saída</div>',
+                    f'<div class="panel-kicker">{ui_text("summary_kicker")}</div>',
                     unsafe_allow_html=True,
                 )
                 first_metric_row = st.columns(2, gap="small")
                 first_metric_row[0].metric(
-                    "Discretização",
+                    ui_text("discretization"),
                     granularity_label,
                 )
                 first_metric_row[1].metric(
-                    "Linhas no resultado",
+                    ui_text("result_rows"),
                     len(summary),
                 )
                 second_metric_row = st.columns(2, gap="small")
                 second_metric_row[0].metric(
-                    "Períodos completos",
+                    ui_text("complete_periods"),
                     complete_periods,
                 )
                 second_metric_row[1].metric(
-                    "Cobertura média",
+                    ui_text("average_coverage"),
                     f"{coverage:.1f}%",
                 )
 
     with table_column:
-        st.subheader(GRANULARITY_TITLES[granularity])
+        st.subheader(GRANULARITY_TITLES[language][granularity])
         if granularity in {"hourly", "daily"} and analysis_start and analysis_end:
-            table_note = (
-                f"Período exibido: {analysis_start:%d/%m/%Y} a "
-                f"{analysis_end:%d/%m/%Y}."
+            table_note = ui_text("period_shown").format(
+                start=f"{analysis_start:%d/%m/%Y}",
+                end=f"{analysis_end:%d/%m/%Y}",
             )
         else:
-            table_note = (
-                f"Período exibido: {loaded_period[0]} a {loaded_period[1]}."
+            table_note = ui_text("period_shown").format(
+                start=loaded_period[0], end=loaded_period[1]
             )
         st.markdown(
-            f'<p class="small-note">{table_note} Valores expressos como potência '
-            "média em MWmed.</p>",
+            f'<p class="small-note">{table_note} {ui_text("values_note")}</p>',
             unsafe_allow_html=True,
         )
         if summary.empty:
-            st.info("Ajuste a configuração ao lado para visualizar os dados.")
+            st.info(ui_text("adjust_config"))
         else:
             display_table(summary, metric_columns)
 
 chart_column, report_column = st.columns([1.55, 1], gap="large")
 with chart_column:
-    chart_titles: dict[Granularity, str] = {
-        "hourly": "Evolução horária",
-        "daily": "Evolução diária",
-        "monthly": "Comparação mensal entre anos",
-        "yearly": "Evolução anual",
-    }
-    st.subheader(chart_titles[granularity])
+    st.subheader(CHART_TITLES[language][granularity])
     if summary.empty:
-        st.info("O gráfico será exibido quando houver dados na tabela.")
+        st.info(ui_text("chart_empty"))
     else:
         chart_metric = st.selectbox(
-            "Grandeza",
+            ui_text("metric_selector"),
             options=metric_columns,
             index=0,
             key="chart_metric",
@@ -715,35 +961,22 @@ with chart_column:
                 columns="Ano",
                 values=chart_metric,
             ).reindex(range(1, 13))
-            chart.index = [
-                "Jan",
-                "Fev",
-                "Mar",
-                "Abr",
-                "Mai",
-                "Jun",
-                "Jul",
-                "Ago",
-                "Set",
-                "Out",
-                "Nov",
-                "Dez",
-            ]
+            chart.index = MONTH_LABELS[language]
             chart.columns = chart.columns.astype(str)
-            x_label = "Mês"
+            x_label = ui_text("x_month")
         elif granularity == "hourly":
             chart = summary.set_index("Data e hora")[[chart_metric]]
-            x_label = "Data e hora"
+            x_label = ui_text("x_datetime")
         elif granularity == "daily":
             chart = summary.set_index("Data")[[chart_metric]]
-            x_label = "Data"
+            x_label = ui_text("x_date")
         else:
             chart = summary.set_index("Ano")[[chart_metric]]
-            x_label = "Ano"
+            x_label = ui_text("x_year")
         st.line_chart(chart, x_label=x_label, y_label=chart_metric)
 
 with report_column:
-    st.subheader("Arquivos processados")
+    st.subheader(ui_text("processed_files"))
     st.dataframe(
         result.file_report,
         width="stretch",
