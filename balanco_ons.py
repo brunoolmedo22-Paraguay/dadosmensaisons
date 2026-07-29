@@ -107,6 +107,46 @@ def build_csv_export(data: pd.DataFrame) -> pd.DataFrame:
     return export[CSV_EXPORT_COLUMNS]
 
 
+def available_subsystems(hourly: pd.DataFrame) -> list[tuple[str, str]]:
+    """Lista subsistemas disponíveis como pares ``(chave, rótulo)``."""
+    if hourly.empty:
+        return []
+
+    if "__subsystem_key" not in hourly.columns:
+        return [("SIN", "SIN")]
+
+    columns = ["__subsystem_key"]
+    if "__subsystem_label" in hourly.columns:
+        columns.append("__subsystem_label")
+    options = hourly[columns].dropna(subset=["__subsystem_key"])
+    labels_by_key: dict[str, str] = {}
+    for row in options.itertuples(index=False, name=None):
+        key = str(row[0]).strip()
+        if not key:
+            continue
+        label = str(row[1]).strip() if len(row) > 1 and pd.notna(row[1]) else key
+        current = labels_by_key.get(key)
+        if current is None or (current == key and label != key):
+            labels_by_key[key] = label or key
+
+    return sorted(
+        labels_by_key.items(),
+        key=lambda item: (item[0] != "SIN", item[1].casefold()),
+    )
+
+
+def filter_hourly_by_subsystem(
+    hourly: pd.DataFrame,
+    subsystem_key: str,
+) -> pd.DataFrame:
+    """Filtra a série horária por subsistema sem alterar as colunas de dados."""
+    if hourly.empty:
+        return hourly.copy()
+    if "__subsystem_key" not in hourly.columns:
+        return hourly.copy() if subsystem_key == "SIN" else hourly.iloc[0:0].copy()
+    return hourly.loc[hourly["__subsystem_key"].eq(subsystem_key)].copy()
+
+
 def build_granular_csv_export(
     data: pd.DataFrame,
     granularity: Granularity,
@@ -307,10 +347,13 @@ def _process_sources(
 
     combined = pd.concat(frames, ignore_index=True, sort=False)
     combined = combined.sort_values(
-        ["din_instante", "__file_order"], kind="stable"
+        ["din_instante", "__subsystem_key", "__file_order"], kind="stable"
     ).reset_index(drop=True)
 
-    overlap_mask = combined.duplicated(subset=["din_instante"], keep="last")
+    overlap_mask = combined.duplicated(
+        subset=["__subsystem_key", "din_instante"],
+        keep="last",
+    )
     overlap_count = int(overlap_mask.sum())
     if overlap_count:
         combined = combined.loc[~overlap_mask].copy()
@@ -337,10 +380,27 @@ def _process_sources(
             hourly_rows=len(combined),
         )
 
-    monthly = _monthly_summary(combined, metric_columns)
+    sin_combined = combined.loc[_sin_mask(combined)].copy()
+    monthly = (
+        _monthly_summary(sin_combined, metric_columns)
+        if not sin_combined.empty
+        else pd.DataFrame()
+    )
     display_metric_columns = [_metric_label(column) for column in metric_columns]
-    hourly = combined[["din_instante", *metric_columns]].copy()
-    hourly = hourly.sort_values("din_instante", kind="stable").reset_index(drop=True)
+    subsystem_columns = [
+        column
+        for column in [
+            "id_subsistema",
+            "nom_subsistema",
+            "__subsystem_key",
+            "__subsystem_label",
+        ]
+        if column in combined.columns
+    ]
+    hourly = combined[[*subsystem_columns, "din_instante", *metric_columns]].copy()
+    hourly = hourly.sort_values(
+        ["din_instante", "__subsystem_key"], kind="stable"
+    ).reset_index(drop=True)
 
     return ProcessingResult(
         monthly=monthly,
@@ -424,28 +484,26 @@ def _validate_source_data(
     year: int,
     file_order: int,
 ) -> tuple[pd.DataFrame, dict[str, object], list[str]]:
-    sin_mask = _sin_mask(data)
-    sin = data.loc[sin_mask].copy()
-    if sin.empty:
-        raise WorkbookError(
-            "não foram encontradas linhas do SIN (id_subsistema = 'SIN')"
-        )
+    prepared = _add_subsystem_metadata(data)
+    prepared = prepared.loc[prepared["__subsystem_key"].ne("")].copy()
+    if prepared.empty:
+        raise WorkbookError("não foram encontrados subsistemas identificáveis")
 
     file_warnings: list[str] = []
-    sin["din_instante"] = _parse_datetime_series(sin["din_instante"])
-    invalid_dates = int(sin["din_instante"].isna().sum())
+    prepared["din_instante"] = _parse_datetime_series(prepared["din_instante"])
+    invalid_dates = int(prepared["din_instante"].isna().sum())
     if invalid_dates:
         file_warnings.append(
-            f"{filename}: {invalid_dates:,} linha(s) do SIN com data inválida "
+            f"{filename}: {invalid_dates:,} linha(s) com data inválida "
             "foram ignoradas."
         )
-        sin = sin.dropna(subset=["din_instante"])
+        prepared = prepared.dropna(subset=["din_instante"])
 
     internal_years = sorted(
-        int(value) for value in sin["din_instante"].dt.year.dropna().unique()
+        int(value) for value in prepared["din_instante"].dt.year.dropna().unique()
     )
-    sin_for_year = sin.loc[sin["din_instante"].dt.year.eq(year)].copy()
-    if sin_for_year.empty:
+    data_for_year = prepared.loc[prepared["din_instante"].dt.year.eq(year)].copy()
+    if data_for_year.empty:
         found = ", ".join(map(str, internal_years)) or "nenhum"
         raise WorkbookError(
             f"o nome indica {year}, mas as datas internas contêm: {found}"
@@ -459,51 +517,103 @@ def _validate_source_data(
         )
 
     metric_columns = [
-        column for column in sin_for_year.columns if column.startswith("val_")
+        column for column in data_for_year.columns if column.startswith("val_")
     ]
     for column in metric_columns:
-        sin_for_year[column] = _parse_numeric_series(sin_for_year[column])
+        data_for_year[column] = _parse_numeric_series(data_for_year[column])
 
-    no_values_mask = sin_for_year[metric_columns].isna().all(axis=1)
+    no_values_mask = data_for_year[metric_columns].isna().all(axis=1)
     no_values_count = int(no_values_mask.sum())
     if no_values_count:
         file_warnings.append(
             f"{filename}: {no_values_count:,} linha(s) sem nenhum valor "
             "numérico foram ignoradas."
         )
-        sin_for_year = sin_for_year.loc[~no_values_mask].copy()
+        data_for_year = data_for_year.loc[~no_values_mask].copy()
 
-    if sin_for_year.empty:
+    if data_for_year.empty:
         raise WorkbookError("não restaram linhas válidas após a validação")
 
-    duplicate_mask = sin_for_year.duplicated(
-        subset=["din_instante"], keep="last"
+    duplicate_mask = data_for_year.duplicated(
+        subset=["__subsystem_key", "din_instante"], keep="last"
     )
     duplicate_count = int(duplicate_mask.sum())
     if duplicate_count:
-        sin_for_year = sin_for_year.loc[~duplicate_mask].copy()
+        data_for_year = data_for_year.loc[~duplicate_mask].copy()
         file_warnings.append(
             f"{filename}: {duplicate_count:,} horário(s) duplicado(s) foram "
             "removidos."
         )
 
-    sin_for_year["__ano_arquivo"] = year
-    sin_for_year["__arquivo"] = filename
-    sin_for_year["__file_order"] = file_order
-    sin_for_year = sin_for_year.sort_values("din_instante", kind="stable")
+    data_for_year["__ano_arquivo"] = year
+    data_for_year["__arquivo"] = filename
+    data_for_year["__file_order"] = file_order
+    data_for_year = data_for_year.sort_values(
+        ["din_instante", "__subsystem_key"], kind="stable"
+    )
 
-    start = sin_for_year["din_instante"].min()
-    end = sin_for_year["din_instante"].max()
+    sin_for_year = data_for_year.loc[_sin_mask(data_for_year)].copy()
+    report_data = sin_for_year if not sin_for_year.empty else data_for_year
+    start = report_data["din_instante"].min()
+    end = report_data["din_instante"].max()
     report = {
         "Arquivo": filename,
         "Ano": year,
         "Período lido": f"{start:%d/%m/%Y} a {end:%d/%m/%Y}",
         "Linhas horárias do SIN": len(sin_for_year),
-        "Meses": int(sin_for_year["din_instante"].dt.month.nunique()),
+        "Meses": int(report_data["din_instante"].dt.month.nunique()),
         "Duplicatas removidas": duplicate_count,
         "Situação": "Processado",
     }
-    return sin_for_year, report, file_warnings
+    return data_for_year, report, file_warnings
+
+
+def _add_subsystem_metadata(data: pd.DataFrame) -> pd.DataFrame:
+    prepared = data.copy()
+    if "id_subsistema" not in prepared.columns:
+        prepared["id_subsistema"] = ""
+    if "nom_subsistema" not in prepared.columns:
+        prepared["nom_subsistema"] = ""
+
+    ids = prepared["id_subsistema"].fillna("").map(_clean_subsystem_text)
+    names = prepared["nom_subsistema"].fillna("").map(_clean_subsystem_text)
+    keys = ids.map(str.upper).where(
+        ids.ne(""), names.map(_subsystem_key_from_name)
+    )
+    sin_rows = _sin_mask(prepared)
+    keys = keys.mask(sin_rows, "SIN")
+
+    prepared["id_subsistema"] = ids
+    prepared["nom_subsistema"] = names
+    prepared["__subsystem_key"] = keys
+    prepared["__subsystem_label"] = [
+        _subsystem_label(key, subsystem_id, name)
+        for key, subsystem_id, name in zip(keys, ids, names)
+    ]
+    return prepared
+
+
+def _clean_subsystem_text(value: object) -> str:
+    if pd.isna(value):
+        return ""
+    return re.sub(r"\s+", " ", str(value).strip())
+
+
+def _subsystem_key_from_name(name: str) -> str:
+    normalized = _normalize_name(name)
+    if normalized in {"sin", "sistema_interligado_nacional"}:
+        return "SIN"
+    return normalized.upper()
+
+
+def _subsystem_label(key: str, subsystem_id: str, name: str) -> str:
+    if key == "SIN":
+        return "SIN"
+    display_id = subsystem_id.upper() if subsystem_id else key
+    display_name = name.title() if name else ""
+    if display_name and _normalize_name(display_name) != _normalize_name(display_id):
+        return f"{display_id} · {display_name}"
+    return display_id
 
 
 def _prepare_sheet(raw: pd.DataFrame) -> pd.DataFrame | None:
