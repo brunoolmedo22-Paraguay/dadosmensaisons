@@ -3,7 +3,7 @@
 Aplicação Streamlit que consulta o Portal de Dados Abertos do ONS e transforma
 os arquivos horários de **Balanço de Energia por Subsistema** em séries
 históricas horárias, diárias, mensais ou anuais do Sistema Interligado Nacional
-(SIN) ou de qualquer subsistema disponível nos arquivos do ONS.
+(SIN).
 
 ## Fluxo automático
 
@@ -16,7 +16,7 @@ históricas horárias, diárias, mensais ou anuais do Sistema Interligado Nacion
 5. A aplicação valida, consolida e guarda a série horária limpa na sessão do
    Streamlit.
 6. A pasta temporária e os Parquet são eliminados automaticamente.
-7. O usuário escolhe o subsistema e a discretização e baixa o CSV correspondente.
+7. O usuário escolhe a discretização e baixa o CSV correspondente.
 
 Não é necessário baixar ou carregar arquivos manualmente.
 
@@ -29,8 +29,7 @@ https://dados.ons.org.br/dataset/balanco-energia-subsistema
 ## Processamento
 
 - valida o ano do recurso contra as datas internas;
-- preserva os registros de todos os subsistemas disponíveis;
-- apresenta `SIN` como subsistema padrão e permite selecionar os demais;
+- seleciona apenas os registros identificados como `SIN`;
 - converte datas e valores numéricos;
 - descarta registros inválidos;
 - evita contagem dupla quando há horários repetidos;
@@ -63,9 +62,9 @@ Para cada período da discretização selecionada:
 média do período = soma dos valores horários válidos / quantidade de valores válidos
 ```
 
-A consolidação usa diretamente as linhas do subsistema selecionado. O `SIN` é
-a opção padrão. Os subsistemas regionais não são somados para reconstruir o
-SIN, evitando distorções nos valores de intercâmbio.
+A consolidação usa diretamente a linha identificada como `SIN`. Os quatro
+subsistemas regionais não são somados, evitando distorções nos valores de
+intercâmbio.
 
 Um período é marcado como **Parcial** quando possui menos registros horários que
 o total esperado para sua duração. A média continua sendo calculada com os

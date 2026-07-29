@@ -10,12 +10,10 @@ import pandas as pd
 from balanco_ons import (
     CSV_EXPORT_COLUMNS,
     WorkbookError,
-    available_subsystems,
     build_csv_export,
     build_granular_csv_export,
     build_period_summary,
     extract_year_from_filename,
-    filter_hourly_by_subsystem,
     process_parquet_files,
     process_uploads,
 )
@@ -45,7 +43,7 @@ class ExtractYearTests(unittest.TestCase):
 
 
 class ProcessingTests(unittest.TestCase):
-    def test_retains_subsystems_and_calculates_sin_monthly_mean(self) -> None:
+    def test_filters_sin_and_calculates_monthly_mean(self) -> None:
         frame = pd.DataFrame(
             {
                 "id_subsistema": ["N", "SIN", "SIN", "SIN"],
@@ -77,14 +75,7 @@ class ProcessingTests(unittest.TestCase):
         self.assertEqual(january["Geração hidráulica (MWmed)"], 150.0)
         self.assertEqual(january["Carga (MWmed)"], 600.0)
         self.assertEqual(january["Horas com dados"], 2)
-        self.assertEqual(len(result.hourly), 4)
-        self.assertEqual(
-            available_subsystems(result.hourly),
-            [("SIN", "SIN"), ("N", "N · Norte")],
-        )
-        north = filter_hourly_by_subsystem(result.hourly, "N")
-        self.assertEqual(len(north), 1)
-        self.assertEqual(float(north.iloc[0]["val_carga"]), 999.0)
+        self.assertEqual(len(result.hourly), 3)
 
     def test_filename_year_is_validated_against_internal_dates(self) -> None:
         frame = pd.DataFrame(
@@ -126,37 +117,6 @@ class ProcessingTests(unittest.TestCase):
         self.assertEqual(result.hourly_rows, 1)
         self.assertEqual(result.monthly.iloc[0]["Carga (MWmed)"], 200.0)
         self.assertTrue(any("sobreposto" in warning for warning in result.warnings))
-
-    def test_builds_summary_for_selected_subsystem(self) -> None:
-        frame = pd.DataFrame(
-            {
-                "id_subsistema": ["SIN", "N", "SIN", "N"],
-                "nom_subsistema": [
-                    "SISTEMA INTERLIGADO NACIONAL",
-                    "NORTE",
-                    "SISTEMA INTERLIGADO NACIONAL",
-                    "NORTE",
-                ],
-                "din_instante": pd.to_datetime(
-                    [
-                        "2026-01-01 00:00",
-                        "2026-01-01 00:00",
-                        "2026-01-01 01:00",
-                        "2026-01-01 01:00",
-                    ]
-                ),
-                "val_carga": [100.0, 20.0, 200.0, 40.0],
-            }
-        )
-        result = process_uploads(
-            [("BALANCO_ENERGIA_SUBSISTEMA_2026.xlsx", workbook_bytes(frame))]
-        )
-
-        north_hourly = filter_hourly_by_subsystem(result.hourly, "N")
-        north_monthly = build_period_summary(north_hourly, "monthly")
-
-        self.assertEqual(len(north_hourly), 2)
-        self.assertEqual(north_monthly.iloc[0]["Carga (MWmed)"], 30.0)
 
     def test_csv_export_contains_only_requested_columns(self) -> None:
         table = pd.DataFrame(
