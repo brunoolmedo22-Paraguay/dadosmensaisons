@@ -102,7 +102,7 @@ st.markdown(
         }
         .empty-card {
             background: var(--surface);
-            border: 1px solid var(--line);
+            border: none;
             border-radius: 16px;
             min-height: 9.2rem;
             padding: 1.25rem;
@@ -131,7 +131,7 @@ st.markdown(
         }
         [data-testid="stMetric"] {
             background: var(--surface);
-            border: 1px solid var(--line);
+            border: none;
             border-radius: 14px;
             padding: .85rem 1rem;
         }
@@ -158,9 +158,12 @@ st.markdown(
             text-transform: uppercase;
             margin-bottom: .2rem;
         }
+        div[data-testid="stVerticalBlockBorderWrapper"] {
+            border: none !important;
+        }
         .st-key-download_panel {
             background: var(--surface);
-            border-color: var(--line) !important;
+            border: none !important;
             border-radius: 18px;
             min-height: 20.25rem;
             padding: 1.15rem 1.25rem;
@@ -168,14 +171,14 @@ st.markdown(
         }
         .st-key-output_panel {
             background: var(--surface);
-            border-color: var(--line) !important;
+            border: none !important;
             border-radius: 18px;
             padding: 1.05rem 1.15rem;
             box-shadow: 0 8px 24px var(--soft-shadow);
         }
         .st-key-output_kpis {
             background: var(--surface);
-            border-color: var(--line) !important;
+            border: none !important;
             border-radius: 18px;
             padding: .9rem 1rem 1rem;
             box-shadow: 0 6px 18px var(--soft-shadow);
@@ -188,7 +191,7 @@ st.markdown(
                 var(--secondary-background-color) 82%,
                 var(--background-color)
             );
-            border-color: var(--line);
+            border: none;
             border-radius: 12px;
         }
         .st-key-output_kpis [data-testid="stMetricLabel"] p {
@@ -203,7 +206,7 @@ st.markdown(
         }
         .st-key-results_panel {
             background: var(--surface);
-            border-color: var(--line) !important;
+            border: none !important;
             border-radius: 18px;
             padding: 1.1rem 1.15rem 1.2rem;
             box-shadow: 0 8px 24px var(--soft-shadow);
@@ -212,7 +215,7 @@ st.markdown(
         .process-card {
             min-height: 20.25rem;
             padding: 1.35rem 1.45rem;
-            border: 1px solid rgba(0, 107, 112, .20);
+            border: none;
             border-radius: 18px;
             background: linear-gradient(
                 145deg,
@@ -273,7 +276,7 @@ st.markdown(
             padding: 1.7rem;
             color: var(--muted);
             text-align: center;
-            border: 1px dashed var(--line);
+            border: none;
             border-radius: 16px;
             background: color-mix(
                 in srgb,
