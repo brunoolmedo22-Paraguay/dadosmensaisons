@@ -167,7 +167,7 @@ st.markdown(
             border-radius: 18px;
             min-height: 20.25rem;
             padding: 1.15rem 1.25rem;
-            box-shadow: 0 8px 24px var(--soft-shadow);
+            box-shadow: none;
         }
         .st-key-output_panel {
             background: var(--surface);
