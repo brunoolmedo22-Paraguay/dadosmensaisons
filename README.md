@@ -122,3 +122,9 @@ python -m unittest discover -s tests -v
 ## Atualização v12
 
 O carregamento de `balanco_ons.py` agora força a recarga do módulo auxiliar antes de acessar as funções de subsistema. Isso evita incompatibilidade entre o `app.py` novo e uma versão antiga mantida em memória pelo Streamlit durante o redeploy.
+
+
+## Ajuste v13
+
+- O seletor PT/ES agora mantém obrigatoriamente um idioma ativo.
+- Ao clicar novamente no idioma selecionado, a seleção é restaurada automaticamente.

@@ -303,8 +303,13 @@ UI_TEXT: dict[str, dict[str, str]] = {
 }
 
 
+VALID_UI_LANGUAGES = ("PT", "ES")
+
+
 def ui_text(key: str) -> str:
     language = st.session_state.get("ui_language", "PT")
+    if language not in VALID_UI_LANGUAGES:
+        language = "PT"
     return UI_TEXT[language][key]
 
 
@@ -595,15 +600,27 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-if "ui_language" not in st.session_state:
+if st.session_state.get("ui_language") not in VALID_UI_LANGUAGES:
     st.session_state["ui_language"] = "PT"
+if st.session_state.get("ui_language_selector") not in VALID_UI_LANGUAGES:
+    st.session_state["ui_language_selector"] = st.session_state["ui_language"]
+
+
+def keep_language_selected() -> None:
+    selected = st.session_state.get("ui_language_selector")
+    if selected in VALID_UI_LANGUAGES:
+        st.session_state["ui_language"] = selected
+    else:
+        st.session_state["ui_language_selector"] = st.session_state["ui_language"]
+
 
 language_spacer, language_column = st.columns([8, 1], gap="small")
 with language_column:
     st.segmented_control(
         "Idioma",
-        options=("PT", "ES"),
-        key="ui_language",
+        options=VALID_UI_LANGUAGES,
+        key="ui_language_selector",
+        on_change=keep_language_selected,
         label_visibility="collapsed",
         width="stretch",
     )
