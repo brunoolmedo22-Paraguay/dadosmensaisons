@@ -11,6 +11,7 @@ import streamlit as st
 from balanco_ons import (
     Granularity,
     ProcessingResult,
+    SUBSYSTEM_LABELS,
     build_granular_csv_export,
     build_period_summary,
     process_parquet_files,
@@ -27,16 +28,23 @@ GRANULARITY_OPTIONS: dict[str, Granularity] = {
     "Anual": "yearly",
 }
 GRANULARITY_TITLES: dict[Granularity, str] = {
-    "hourly": "Série horária do SIN",
-    "daily": "Médias diárias do SIN",
-    "monthly": "Médias mensais do SIN",
-    "yearly": "Médias anuais do SIN",
+    "hourly": "Série horária",
+    "daily": "Médias diárias",
+    "monthly": "Médias mensais",
+    "yearly": "Médias anuais",
 }
 GRANULARITY_SLUGS: dict[Granularity, str] = {
     "hourly": "horario",
     "daily": "diario",
     "monthly": "mensal",
     "yearly": "anual",
+}
+SUBSYSTEM_SLUGS = {
+    SUBSYSTEM_LABELS["SIN"]: "sin",
+    SUBSYSTEM_LABELS["SE"]: "seco",
+    SUBSYSTEM_LABELS["S"]: "sul",
+    SUBSYSTEM_LABELS["NE"]: "nordeste",
+    SUBSYSTEM_LABELS["N"]: "norte",
 }
 
 
@@ -275,8 +283,16 @@ st.markdown(
 )
 
 
-def csv_bytes(data: pd.DataFrame, granularity: Granularity) -> bytes:
-    return build_granular_csv_export(data, granularity).to_csv(
+def csv_bytes(
+    data: pd.DataFrame,
+    granularity: Granularity,
+    metric_columns: Sequence[str],
+) -> bytes:
+    return build_granular_csv_export(
+        data,
+        granularity,
+        metric_columns=metric_columns,
+    ).to_csv(
         index=False,
         sep=";",
         decimal=",",
@@ -429,7 +445,7 @@ with explanation_column:
             <div class="process-step">
                 <div class="process-number">3</div>
                 <div>
-                    <strong>Preparar a série do SIN</strong>
+                    <strong>Preparar as séries por subsistema</strong>
                     <p>Limpa os registros horários e os deixa prontos para análise e CSV.</p>
                 </div>
             </div>
@@ -447,9 +463,11 @@ if download_clicked:
     st.session_state.pop("ons_result", None)
     st.session_state.pop("ons_period", None)
     st.session_state.pop("ons_download_bytes", None)
+    st.session_state.pop("selected_subsystem", None)
+    st.session_state.pop("chart_metric", None)
     for state_key in list(st.session_state):
         if str(state_key).startswith(
-            ("analysis_start_", "analysis_end_")
+            ("analysis_start_", "analysis_end_", "visible_metrics_")
         ):
             st.session_state.pop(state_key, None)
     try:
@@ -509,9 +527,13 @@ st.success(
 )
 
 metric_columns = result.metric_columns
-timestamps = pd.to_datetime(result.hourly["din_instante"], errors="coerce").dropna()
-data_min = timestamps.min().date()
-data_max = timestamps.max().date()
+subsystem_options = getattr(result, "subsystem_options", [])
+if not subsystem_options and "Subsistema" in result.hourly.columns:
+    subsystem_options = (
+        result.hourly["Subsistema"].dropna().astype(str).drop_duplicates().tolist()
+    )
+if not subsystem_options:
+    subsystem_options = [SUBSYSTEM_LABELS["SIN"]]
 
 table_column, settings_column = st.columns([1.7, 1], gap="large")
 
@@ -521,7 +543,18 @@ with settings_column:
             '<div class="panel-kicker">Configuração da saída</div>',
             unsafe_allow_html=True,
         )
-        st.subheader("Discretização e CSV")
+        st.subheader("Tabela, gráfico e CSV")
+        default_subsystem_index = (
+            subsystem_options.index(SUBSYSTEM_LABELS["SIN"])
+            if SUBSYSTEM_LABELS["SIN"] in subsystem_options
+            else 0
+        )
+        selected_subsystem = st.selectbox(
+            "Subsistema",
+            options=subsystem_options,
+            index=default_subsystem_index,
+            key="selected_subsystem",
+        )
         granularity_label = st.selectbox(
             "Discretização dos dados",
             options=list(GRANULARITY_OPTIONS),
@@ -529,19 +562,39 @@ with settings_column:
             key="granularity_label",
         )
         granularity = GRANULARITY_OPTIONS[granularity_label]
+        subsystem_slug = SUBSYSTEM_SLUGS.get(
+            selected_subsystem,
+            "subsistema",
+        )
+
+        selected_hourly = result.hourly
+        if "Subsistema" in selected_hourly.columns:
+            selected_hourly = selected_hourly.loc[
+                selected_hourly["Subsistema"].eq(selected_subsystem)
+            ].copy()
+        timestamps = pd.to_datetime(
+            selected_hourly["din_instante"],
+            errors="coerce",
+        ).dropna()
 
         analysis_start: date | None = None
         analysis_end: date | None = None
-        valid_dates = True
+        valid_dates = not timestamps.empty
+        if valid_dates:
+            data_min = timestamps.min().date()
+            data_max = timestamps.max().date()
+        else:
+            st.warning("Não há registros para o subsistema selecionado.")
 
-        if granularity in {"hourly", "daily"}:
+        if valid_dates and granularity in {"hourly", "daily"}:
             suggested_days = 6 if granularity == "hourly" else 30
             suggested_start = max(
                 data_min,
                 data_max - timedelta(days=suggested_days),
             )
             date_key = (
-                f"{loaded_period[0]}_{loaded_period[1]}_{granularity}"
+                f"{loaded_period[0]}_{loaded_period[1]}_"
+                f"{granularity}_{subsystem_slug}"
             )
             start_column, end_column = st.columns(2, gap="small")
             with start_column:
@@ -567,7 +620,7 @@ with settings_column:
                 st.caption(
                     "Use os dois calendários para limitar o volume exibido e exportado."
                 )
-        else:
+        elif valid_dates:
             st.info(
                 f"Todo o intervalo baixado, de {loaded_period[0]} a "
                 f"{loaded_period[1]}, será incluído."
@@ -575,7 +628,7 @@ with settings_column:
 
         if valid_dates:
             summary = build_period_summary(
-                result.hourly,
+                selected_hourly,
                 granularity=granularity,
                 start_date=analysis_start,
                 end_date=analysis_end,
@@ -583,9 +636,42 @@ with settings_column:
         else:
             summary = pd.DataFrame()
 
+        available_metric_columns = [
+            metric
+            for metric in metric_columns
+            if summary.empty or metric in summary.columns
+        ]
+        selected_metric_columns = st.multiselect(
+            "Variáveis na tabela e no gráfico",
+            options=available_metric_columns,
+            default=available_metric_columns,
+            key=(
+                f"visible_metrics_{loaded_period[0]}_{loaded_period[1]}_"
+                f"{subsystem_slug}"
+            ),
+            help=(
+                "As mesmas variáveis serão usadas na tabela, no gráfico "
+                "e no arquivo CSV."
+            ),
+        )
+
+        summary_metric_columns = [
+            metric for metric in metric_columns if metric in summary.columns
+        ]
+        metadata_columns = [
+            column
+            for column in summary.columns
+            if column not in summary_metric_columns
+        ]
+        table_summary = summary[
+            [*metadata_columns, *selected_metric_columns]
+        ].copy()
+
         st.divider()
         if summary.empty:
             st.warning("Não há dados para a configuração selecionada.")
+        elif not selected_metric_columns:
+            st.warning("Selecione ao menos uma variável para gerar a saída.")
 
         if analysis_start is not None and analysis_end is not None:
             export_period = (
@@ -595,25 +681,30 @@ with settings_column:
             export_period = f"{loaded_period[0]}-{loaded_period[1]}"
 
         export_name = (
-            f"balanco_sin_{GRANULARITY_SLUGS[granularity]}_"
+            f"balanco_{subsystem_slug}_{GRANULARITY_SLUGS[granularity]}_"
             f"{export_period}.csv"
         )
+        output_ready = not summary.empty and bool(selected_metric_columns)
         st.download_button(
             "Baixar dados consolidados em CSV",
             data=(
-                csv_bytes(summary, granularity)
-                if not summary.empty
+                csv_bytes(
+                    table_summary,
+                    granularity,
+                    selected_metric_columns,
+                )
+                if output_ready
                 else b""
             ),
             file_name=export_name,
             mime="text/csv",
             type="primary",
             width="stretch",
-            disabled=summary.empty,
+            disabled=not output_ready,
         )
         st.caption(
-            "O CSV corresponde exatamente à discretização e ao período "
-            "mostrados na tabela."
+            "O CSV respeita o subsistema, o período, a discretização e as "
+            "variáveis mostradas na tabela."
         )
 
     if not summary.empty:
@@ -646,7 +737,9 @@ with settings_column:
             )
 
 with table_column:
-    st.subheader(GRANULARITY_TITLES[granularity])
+    st.subheader(
+        f"{GRANULARITY_TITLES[granularity]} — {selected_subsystem}"
+    )
     if granularity in {"hourly", "daily"} and analysis_start and analysis_end:
         table_note = (
             f"Período exibido: {analysis_start:%d/%m/%Y} a "
@@ -664,58 +757,34 @@ with table_column:
     if summary.empty:
         st.info("Ajuste a configuração ao lado para visualizar os dados.")
     else:
-        display_table(summary, metric_columns)
+        display_table(table_summary, selected_metric_columns)
 
-chart_column, report_column = st.columns([1.55, 1], gap="large")
+chart_column, report_column = st.columns([1.7, 1], gap="large")
 with chart_column:
-    chart_titles: dict[Granularity, str] = {
-        "hourly": "Evolução horária",
-        "daily": "Evolução diária",
-        "monthly": "Comparação mensal entre anos",
-        "yearly": "Evolução anual",
-    }
-    st.subheader(chart_titles[granularity])
+    st.subheader("Representação gráfica da tabela")
+    st.caption(
+        f"{selected_subsystem} · {granularity_label.lower()} · "
+        "mesmas linhas e variáveis selecionadas."
+    )
     if summary.empty:
         st.info("O gráfico será exibido quando houver dados na tabela.")
+    elif not selected_metric_columns:
+        st.info("Selecione ao menos uma variável para visualizar o gráfico.")
     else:
-        chart_metric = st.selectbox(
-            "Grandeza",
-            options=metric_columns,
-            index=0,
-            key="chart_metric",
+        chart = table_summary.set_index("__period_start")[
+            selected_metric_columns
+        ]
+        x_labels: dict[Granularity, str] = {
+            "hourly": "Data e hora",
+            "daily": "Data",
+            "monthly": "Mês",
+            "yearly": "Ano",
+        }
+        st.line_chart(
+            chart,
+            x_label=x_labels[granularity],
+            y_label="Potência média (MWmed)",
         )
-        if granularity == "monthly":
-            chart = summary.pivot(
-                index="Mês nº",
-                columns="Ano",
-                values=chart_metric,
-            ).reindex(range(1, 13))
-            chart.index = [
-                "Jan",
-                "Fev",
-                "Mar",
-                "Abr",
-                "Mai",
-                "Jun",
-                "Jul",
-                "Ago",
-                "Set",
-                "Out",
-                "Nov",
-                "Dez",
-            ]
-            chart.columns = chart.columns.astype(str)
-            x_label = "Mês"
-        elif granularity == "hourly":
-            chart = summary.set_index("Data e hora")[[chart_metric]]
-            x_label = "Data e hora"
-        elif granularity == "daily":
-            chart = summary.set_index("Data")[[chart_metric]]
-            x_label = "Data"
-        else:
-            chart = summary.set_index("Ano")[[chart_metric]]
-            x_label = "Ano"
-        st.line_chart(chart, x_label=x_label, y_label=chart_metric)
 
 with report_column:
     st.subheader("Arquivos processados")
@@ -726,7 +795,7 @@ with report_column:
         height=min(445, 96 + 35 * len(result.file_report)),
         column_config={
             "Ano": st.column_config.NumberColumn(format="%d"),
-            "Linhas horárias do SIN": st.column_config.NumberColumn(format="%d"),
+            "Registros horários": st.column_config.NumberColumn(format="%d"),
             "Meses": st.column_config.NumberColumn(format="%d"),
             "Duplicatas removidas": st.column_config.NumberColumn(format="%d"),
         },

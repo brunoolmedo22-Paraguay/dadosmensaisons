@@ -3,7 +3,7 @@
 Aplicação Streamlit que consulta o Portal de Dados Abertos do ONS e transforma
 os arquivos horários de **Balanço de Energia por Subsistema** em séries
 históricas horárias, diárias, mensais ou anuais do Sistema Interligado Nacional
-(SIN).
+(SIN) ou de cada um dos quatro subsistemas regionais.
 
 ## Fluxo automático
 
@@ -29,16 +29,19 @@ https://dados.ons.org.br/dataset/balanco-energia-subsistema
 ## Processamento
 
 - valida o ano do recurso contra as datas internas;
-- seleciona apenas os registros identificados como `SIN`;
+- identifica e preserva separadamente SIN, Sudeste/Centro-Oeste, Sul, Nordeste
+  e Norte;
 - converte datas e valores numéricos;
 - descarta registros inválidos;
-- evita contagem dupla quando há horários repetidos;
+- evita contagem dupla por subsistema quando há horários repetidos;
 - oferece discretização horária, diária, mensal e anual;
 - permite limitar por data inicial e final nas visualizações horária e diária;
+- permite escolher o subsistema e as variáveis exibidas;
 - calcula a média de cada coluna dentro do período selecionado;
 - informa horas disponíveis, horas esperadas e cobertura de cada período;
-- adapta a tabela e o gráfico à discretização selecionada;
-- exporta exatamente a saída visível em CSV compatível com Excel em português.
+- faz o gráfico usar exatamente os períodos e as variáveis da tabela;
+- exporta em CSV somente as variáveis selecionadas, em formato compatível com
+  Excel em português.
 
 As colunas conhecidas são apresentadas com nomes amigáveis:
 
@@ -62,9 +65,9 @@ Para cada período da discretização selecionada:
 média do período = soma dos valores horários válidos / quantidade de valores válidos
 ```
 
-A consolidação usa diretamente a linha identificada como `SIN`. Os quatro
-subsistemas regionais não são somados, evitando distorções nos valores de
-intercâmbio.
+A consolidação usa diretamente a série publicada pelo ONS para o subsistema
+selecionado. Os subsistemas regionais nunca são somados para reconstruir o SIN,
+evitando distorções nos valores de intercâmbio.
 
 Um período é marcado como **Parcial** quando possui menos registros horários que
 o total esperado para sua duração. A média continua sendo calculada com os
