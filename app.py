@@ -67,13 +67,13 @@ CHART_TITLES: dict[str, dict[Granularity, str]] = {
     "PT": {
         "hourly": "Evolução horária",
         "daily": "Evolução diária",
-        "monthly": "Comparação mensal entre anos",
+        "monthly": "Evolução mensal",
         "yearly": "Evolução anual",
     },
     "ES": {
         "hourly": "Evolución horaria",
         "daily": "Evolución diaria",
-        "monthly": "Comparación mensual entre años",
+        "monthly": "Evolución mensual",
         "yearly": "Evolución anual",
     },
 }
@@ -184,6 +184,7 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "chart_empty": "O gráfico será exibido quando houver dados na tabela.",
         "metric_selector": "Grandeza",
         "x_month": "Mês",
+        "x_month_year": "Mês e ano",
         "x_datetime": "Data e hora",
         "x_date": "Data",
         "x_year": "Ano",
@@ -280,6 +281,7 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "chart_empty": "El gráfico se mostrará cuando haya datos en la tabla.",
         "metric_selector": "Magnitud",
         "x_month": "Mes",
+        "x_month_year": "Mes y año",
         "x_datetime": "Fecha y hora",
         "x_date": "Fecha",
         "x_year": "Año",
@@ -994,14 +996,11 @@ with chart_column:
             key="chart_metric",
         )
         if granularity == "monthly":
-            chart = summary.pivot(
-                index="Mês nº",
-                columns="Ano",
-                values=chart_metric,
-            ).reindex(range(1, 13))
-            chart.index = MONTH_LABELS[language]
-            chart.columns = chart.columns.astype(str)
-            x_label = ui_text("x_month")
+            chart = (
+                summary.sort_values("__period_start", kind="stable")
+                .set_index("__period_start")[[chart_metric]]
+            )
+            x_label = ui_text("x_month_year")
         elif granularity == "hourly":
             chart = summary.set_index("Data e hora")[[chart_metric]]
             x_label = ui_text("x_datetime")
