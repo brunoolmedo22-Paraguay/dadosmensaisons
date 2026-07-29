@@ -20,6 +20,12 @@ from ons_download import ONSDownloadError, download_parquet_years
 
 FIRST_AVAILABLE_YEAR = 2000
 CURRENT_YEAR = date.today().year
+HERO_LOGO_PATH = Path(__file__).parent / "assets" / "logo_contorno_transparente.svg"
+HERO_LOGO_SVG = (
+    HERO_LOGO_PATH.read_text(encoding="utf-8")
+    if HERO_LOGO_PATH.exists()
+    else ""
+)
 GRANULARITIES: tuple[Granularity, ...] = (
     "hourly",
     "daily",
@@ -328,6 +334,28 @@ st.markdown(
                 linear-gradient(90deg, #004e52, #006b70);
             box-shadow: 0 12px 30px rgba(12, 71, 75, .13);
             margin-bottom: 1.25rem;
+            overflow: hidden;
+        }
+        .hero-layout {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(14rem, 27rem);
+            gap: 1.5rem;
+            align-items: center;
+        }
+        .hero-text {
+            min-width: 0;
+        }
+        .hero-logo {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 9rem;
+        }
+        .hero-logo svg {
+            display: block;
+            width: min(100%, 24rem);
+            height: auto;
+            max-height: 12rem;
         }
         .hero-kicker {
             color: #c8ebea;
@@ -349,6 +377,19 @@ st.markdown(
             font-size: 1rem;
             max-width: 54rem;
             margin: .7rem 0 0;
+        }
+        @media (max-width: 820px) {
+            .hero-layout {
+                grid-template-columns: 1fr;
+            }
+            .hero-logo {
+                min-height: auto;
+                padding-top: .35rem;
+            }
+            .hero-logo svg {
+                width: min(72%, 18rem);
+                max-height: 9rem;
+            }
         }
         .empty-card {
             background: var(--surface);
@@ -650,9 +691,16 @@ def obtain_ons_data(
 st.markdown(
     f"""
     <section class="hero">
-        <div class="hero-kicker">{ui_text("hero_kicker")}</div>
-        <h1 class="hero-title">{ui_text("hero_title")}</h1>
-        <p class="hero-copy">{ui_text("hero_copy")}</p>
+        <div class="hero-layout">
+            <div class="hero-text">
+                <div class="hero-kicker">{ui_text("hero_kicker")}</div>
+                <h1 class="hero-title">{ui_text("hero_title")}</h1>
+                <p class="hero-copy">{ui_text("hero_copy")}</p>
+            </div>
+            <div class="hero-logo" aria-hidden="true">
+                {HERO_LOGO_SVG}
+            </div>
+        </div>
     </section>
     """,
     unsafe_allow_html=True,
