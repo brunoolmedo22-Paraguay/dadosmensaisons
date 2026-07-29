@@ -195,6 +195,14 @@ st.markdown(
             font-size: 1.45rem;
             line-height: 1.15;
         }
+        .st-key-results_panel {
+            background: rgba(255, 255, 255, .92);
+            border-color: var(--line) !important;
+            border-radius: 18px;
+            padding: 1.1rem 1.15rem 1.2rem;
+            box-shadow: 0 8px 24px rgba(20, 61, 64, .05);
+            margin-top: .35rem;
+        }
         .process-card {
             min-height: 20.25rem;
             padding: 1.35rem 1.45rem;
@@ -513,158 +521,159 @@ timestamps = pd.to_datetime(result.hourly["din_instante"], errors="coerce").drop
 data_min = timestamps.min().date()
 data_max = timestamps.max().date()
 
-table_column, settings_column = st.columns([1.7, 1], gap="large")
+with st.container(border=True, key="results_panel"):
+    table_column, settings_column = st.columns([1.7, 1], gap="large")
 
-with settings_column:
-    with st.container(border=True, key="output_panel"):
-        st.markdown(
-            '<div class="panel-kicker">Configuração da saída</div>',
-            unsafe_allow_html=True,
-        )
-        st.subheader("Discretização e CSV")
-        granularity_label = st.selectbox(
-            "Discretização dos dados",
-            options=list(GRANULARITY_OPTIONS),
-            index=2,
-            key="granularity_label",
-        )
-        granularity = GRANULARITY_OPTIONS[granularity_label]
-
-        analysis_start: date | None = None
-        analysis_end: date | None = None
-        valid_dates = True
-
-        if granularity in {"hourly", "daily"}:
-            suggested_days = 6 if granularity == "hourly" else 30
-            suggested_start = max(
-                data_min,
-                data_max - timedelta(days=suggested_days),
-            )
-            date_key = (
-                f"{loaded_period[0]}_{loaded_period[1]}_{granularity}"
-            )
-            start_column, end_column = st.columns(2, gap="small")
-            with start_column:
-                analysis_start = st.date_input(
-                    "Data inicial",
-                    value=suggested_start,
-                    min_value=data_min,
-                    max_value=data_max,
-                    key=f"analysis_start_{date_key}",
-                )
-            with end_column:
-                analysis_end = st.date_input(
-                    "Data final",
-                    value=data_max,
-                    min_value=data_min,
-                    max_value=data_max,
-                    key=f"analysis_end_{date_key}",
-                )
-            if analysis_start > analysis_end:
-                st.error("A data inicial deve ser anterior à data final.")
-                valid_dates = False
-            else:
-                st.caption(
-                    "Use os dois calendários para limitar o volume exibido e exportado."
-                )
-        else:
-            st.info(
-                f"Todo o intervalo baixado, de {loaded_period[0]} a "
-                f"{loaded_period[1]}, será incluído."
-            )
-
-        if valid_dates:
-            summary = build_period_summary(
-                result.hourly,
-                granularity=granularity,
-                start_date=analysis_start,
-                end_date=analysis_end,
-            )
-        else:
-            summary = pd.DataFrame()
-
-        st.divider()
-        if summary.empty:
-            st.warning("Não há dados para a configuração selecionada.")
-
-        if analysis_start is not None and analysis_end is not None:
-            export_period = (
-                f"{analysis_start:%Y%m%d}-{analysis_end:%Y%m%d}"
-            )
-        else:
-            export_period = f"{loaded_period[0]}-{loaded_period[1]}"
-
-        export_name = (
-            f"balanco_sin_{GRANULARITY_SLUGS[granularity]}_"
-            f"{export_period}.csv"
-        )
-        st.download_button(
-            "Baixar dados consolidados em CSV",
-            data=(
-                csv_bytes(summary, granularity)
-                if not summary.empty
-                else b""
-            ),
-            file_name=export_name,
-            mime="text/csv",
-            type="primary",
-            width="stretch",
-            disabled=summary.empty,
-        )
-        st.caption(
-            "O CSV corresponde exatamente à discretização e ao período "
-            "mostrados na tabela."
-        )
-
-    if not summary.empty:
-        complete_periods = int(
-            summary["Status do período"].eq("Completo").sum()
-        )
-        coverage = float(summary["Cobertura (%)"].mean())
-        with st.container(border=True, key="output_kpis"):
+    with settings_column:
+        with st.container(border=True, key="output_panel"):
             st.markdown(
-                '<div class="panel-kicker">Resumo da saída</div>',
+                '<div class="panel-kicker">Configuração da saída</div>',
                 unsafe_allow_html=True,
             )
-            first_metric_row = st.columns(2, gap="small")
-            first_metric_row[0].metric(
-                "Discretização",
-                granularity_label,
+            st.subheader("Discretização e CSV")
+            granularity_label = st.selectbox(
+                "Discretização dos dados",
+                options=list(GRANULARITY_OPTIONS),
+                index=2,
+                key="granularity_label",
             )
-            first_metric_row[1].metric(
-                "Linhas no resultado",
-                len(summary),
+            granularity = GRANULARITY_OPTIONS[granularity_label]
+
+            analysis_start: date | None = None
+            analysis_end: date | None = None
+            valid_dates = True
+
+            if granularity in {"hourly", "daily"}:
+                suggested_days = 6 if granularity == "hourly" else 30
+                suggested_start = max(
+                    data_min,
+                    data_max - timedelta(days=suggested_days),
+                )
+                date_key = (
+                    f"{loaded_period[0]}_{loaded_period[1]}_{granularity}"
+                )
+                start_column, end_column = st.columns(2, gap="small")
+                with start_column:
+                    analysis_start = st.date_input(
+                        "Data inicial",
+                        value=suggested_start,
+                        min_value=data_min,
+                        max_value=data_max,
+                        key=f"analysis_start_{date_key}",
+                    )
+                with end_column:
+                    analysis_end = st.date_input(
+                        "Data final",
+                        value=data_max,
+                        min_value=data_min,
+                        max_value=data_max,
+                        key=f"analysis_end_{date_key}",
+                    )
+                if analysis_start > analysis_end:
+                    st.error("A data inicial deve ser anterior à data final.")
+                    valid_dates = False
+                else:
+                    st.caption(
+                        "Use os dois calendários para limitar o volume exibido e exportado."
+                    )
+            else:
+                st.info(
+                    f"Todo o intervalo baixado, de {loaded_period[0]} a "
+                    f"{loaded_period[1]}, será incluído."
+                )
+
+            if valid_dates:
+                summary = build_period_summary(
+                    result.hourly,
+                    granularity=granularity,
+                    start_date=analysis_start,
+                    end_date=analysis_end,
+                )
+            else:
+                summary = pd.DataFrame()
+
+            st.divider()
+            if summary.empty:
+                st.warning("Não há dados para a configuração selecionada.")
+
+            if analysis_start is not None and analysis_end is not None:
+                export_period = (
+                    f"{analysis_start:%Y%m%d}-{analysis_end:%Y%m%d}"
+                )
+            else:
+                export_period = f"{loaded_period[0]}-{loaded_period[1]}"
+
+            export_name = (
+                f"balanco_sin_{GRANULARITY_SLUGS[granularity]}_"
+                f"{export_period}.csv"
             )
-            second_metric_row = st.columns(2, gap="small")
-            second_metric_row[0].metric(
-                "Períodos completos",
-                complete_periods,
+            st.download_button(
+                "Baixar dados consolidados em CSV",
+                data=(
+                    csv_bytes(summary, granularity)
+                    if not summary.empty
+                    else b""
+                ),
+                file_name=export_name,
+                mime="text/csv",
+                type="primary",
+                width="stretch",
+                disabled=summary.empty,
             )
-            second_metric_row[1].metric(
-                "Cobertura média",
-                f"{coverage:.1f}%",
+            st.caption(
+                "O CSV corresponde exatamente à discretização e ao período "
+                "mostrados na tabela."
             )
 
-with table_column:
-    st.subheader(GRANULARITY_TITLES[granularity])
-    if granularity in {"hourly", "daily"} and analysis_start and analysis_end:
-        table_note = (
-            f"Período exibido: {analysis_start:%d/%m/%Y} a "
-            f"{analysis_end:%d/%m/%Y}."
+        if not summary.empty:
+            complete_periods = int(
+                summary["Status do período"].eq("Completo").sum()
+            )
+            coverage = float(summary["Cobertura (%)"].mean())
+            with st.container(border=True, key="output_kpis"):
+                st.markdown(
+                    '<div class="panel-kicker">Resumo da saída</div>',
+                    unsafe_allow_html=True,
+                )
+                first_metric_row = st.columns(2, gap="small")
+                first_metric_row[0].metric(
+                    "Discretização",
+                    granularity_label,
+                )
+                first_metric_row[1].metric(
+                    "Linhas no resultado",
+                    len(summary),
+                )
+                second_metric_row = st.columns(2, gap="small")
+                second_metric_row[0].metric(
+                    "Períodos completos",
+                    complete_periods,
+                )
+                second_metric_row[1].metric(
+                    "Cobertura média",
+                    f"{coverage:.1f}%",
+                )
+
+    with table_column:
+        st.subheader(GRANULARITY_TITLES[granularity])
+        if granularity in {"hourly", "daily"} and analysis_start and analysis_end:
+            table_note = (
+                f"Período exibido: {analysis_start:%d/%m/%Y} a "
+                f"{analysis_end:%d/%m/%Y}."
+            )
+        else:
+            table_note = (
+                f"Período exibido: {loaded_period[0]} a {loaded_period[1]}."
+            )
+        st.markdown(
+            f'<p class="small-note">{table_note} Valores expressos como potência '
+            "média em MWmed.</p>",
+            unsafe_allow_html=True,
         )
-    else:
-        table_note = (
-            f"Período exibido: {loaded_period[0]} a {loaded_period[1]}."
-        )
-    st.markdown(
-        f'<p class="small-note">{table_note} Valores expressos como potência '
-        "média em MWmed.</p>",
-        unsafe_allow_html=True,
-    )
-    if summary.empty:
-        st.info("Ajuste a configuração ao lado para visualizar os dados.")
-    else:
-        display_table(summary, metric_columns)
+        if summary.empty:
+            st.info("Ajuste a configuração ao lado para visualizar os dados.")
+        else:
+            display_table(summary, metric_columns)
 
 chart_column, report_column = st.columns([1.55, 1], gap="large")
 with chart_column:
