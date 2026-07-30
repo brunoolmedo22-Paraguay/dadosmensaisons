@@ -9,7 +9,7 @@ Aplicação Streamlit unificada para baixar e analisar três bases oficiais do O
 ## Funcionamento
 
 1. Selecione o intervalo de anos.
-2. Clique em **Baixar dados do ONS**. A aplicação localiza, baixa e valida os arquivos anuais das três bases.
+2. Clique em **Baixar dados do ONS**. A aplicação localiza, baixa e valida os arquivos anuais das três bases. Para ENA, prioriza Parquet e usa automaticamente o CSV oficial quando o Parquet do ano não existe ou falha.
 3. No seletor segmentado entre o painel de período e o painel de resultados, marque **Balanço**, **EAR**, **ENA** ou qualquer combinação entre elas.
 4. Escolha o subsistema e a discretização: **diária**, **mensal** ou **anual**.
 5. Visualize os dados em uma única tabela e baixe um único CSV. As colunas auxiliares de cobertura e status permanecem na tabela, mas não são exportadas.
@@ -43,6 +43,6 @@ streamlit run app.py
 - `ons_download.py`: download do Balanço Energético;
 - `ear_processing.py`: processamento da EAR;
 - `ear_download.py`: download da EAR;
-- `ena_processing.py`: processamento da ENA;
-- `ena_download.py`: download da ENA;
+- `ena_processing.py`: processamento unificado dos arquivos CSV e Parquet de ENA;
+- `ena_download.py`: download da ENA com preferência por Parquet e fallback automático para CSV;
 - `unified_ons.py`: junção temporal, tabela e CSV unificados.

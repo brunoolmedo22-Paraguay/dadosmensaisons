@@ -271,10 +271,18 @@ def extract_year_from_filename(filename: str) -> int:
     return years.pop()
 
 
+def process_data_files(
+    files: Sequence[tuple[str, Path]],
+) -> ProcessingResult:
+    """Processa uma lista mista de arquivos anuais CSV e Parquet de ENA."""
+    return _process_sources(files, _load_single_source)
+
+
 def process_parquet_files(
     files: Sequence[tuple[str, Path]],
 ) -> ProcessingResult:
-    return _process_sources(files, _load_single_parquet)
+    """Compatibilidade: aceita também CSVs usados como fallback histórico."""
+    return process_data_files(files)
 
 
 def _process_sources(
@@ -334,17 +342,66 @@ def _process_sources(
     )
 
 
+def _load_single_source(
+    filename: str,
+    path: Path,
+    file_order: int,
+) -> tuple[pd.DataFrame, dict[str, object], list[str]]:
+    suffix = Path(filename).suffix.lower()
+    if suffix == ".parquet":
+        return _load_single_parquet(filename, path, file_order)
+    if suffix == ".csv":
+        return _load_single_csv(filename, path, file_order)
+    raise WorkbookError("formato não suportado; use CSV ou Parquet")
+
+
 def _load_single_parquet(
     filename: str,
     path: Path,
     file_order: int,
 ) -> tuple[pd.DataFrame, dict[str, object], list[str]]:
-    year = extract_year_from_filename(filename)
     try:
         raw = pd.read_parquet(path)
     except Exception as exc:
         raise WorkbookError(f"não foi possível ler o Parquet: {exc}") from exc
+    return _normalize_loaded_frame(filename, raw, file_order, "Parquet")
 
+
+def _load_single_csv(
+    filename: str,
+    path: Path,
+    file_order: int,
+) -> tuple[pd.DataFrame, dict[str, object], list[str]]:
+    read_errors: list[str] = []
+    raw: pd.DataFrame | None = None
+    for separator in (";", ","):
+        try:
+            candidate = pd.read_csv(
+                path,
+                sep=separator,
+                encoding="utf-8-sig",
+                dtype="string",
+                low_memory=False,
+            )
+        except Exception as exc:
+            read_errors.append(str(exc))
+            continue
+        if len(candidate.columns) > 1:
+            raw = candidate
+            break
+    if raw is None:
+        detail = read_errors[-1] if read_errors else "delimitador não reconhecido"
+        raise WorkbookError(f"não foi possível ler o CSV: {detail}")
+    return _normalize_loaded_frame(filename, raw, file_order, "CSV")
+
+
+def _normalize_loaded_frame(
+    filename: str,
+    raw: pd.DataFrame,
+    file_order: int,
+    source_format: str,
+) -> tuple[pd.DataFrame, dict[str, object], list[str]]:
+    year = extract_year_from_filename(filename)
     if raw.empty:
         raise WorkbookError("o arquivo está vazio")
 
@@ -362,7 +419,11 @@ def _load_single_parquet(
         raise WorkbookError("colunas obrigatórias ausentes: " + ", ".join(missing))
 
     warnings: list[str] = []
-    frame["ena_data"] = pd.to_datetime(frame["ena_data"], errors="coerce").dt.floor("D")
+    frame["ena_data"] = pd.to_datetime(
+        frame["ena_data"],
+        errors="coerce",
+        dayfirst=True,
+    ).dt.floor("D")
     invalid_dates = int(frame["ena_data"].isna().sum())
     if invalid_dates:
         warnings.append(f"{filename}: {invalid_dates} linha(s) com data inválida foram removidas.")
@@ -404,7 +465,7 @@ def _load_single_parquet(
         "Linhas diárias": len(frame),
         "Subsistemas": subsystem_count,
         "Duplicatas removidas": duplicate_count,
-        "Situação": "Processado",
+        "Situação": f"Processado ({source_format})",
     }
     return frame[
         [

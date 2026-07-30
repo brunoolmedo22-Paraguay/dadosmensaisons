@@ -141,3 +141,55 @@ def test_csv_export_preserves_only_period_and_metrics() -> None:
         "ENA armazenável (% MLT)",
     ]
     assert export.loc[0, "Data"] == "01/01/2026"
+
+
+def test_processes_historical_csv_with_decimal_comma(tmp_path: Path) -> None:
+    csv_path = tmp_path / "ENA_DIARIO_SUBSISTEMA_2020.csv"
+    rows = [
+        "id_subsistema;nom_subsistema;ena_data;ena_bruta_regiao_mwmed;ena_bruta_regiao_percentualmlt;ena_armazenavel_regiao_mwmed;ena_armazenavel_regiao_percentualmlt",
+        "SE;Sudeste/Centro-Oeste;01/01/2020;100,0;50,0;80,0;40,0",
+        "S;Sul;01/01/2020;50,0;100,0;40,0;80,0",
+        "NE;Nordeste;01/01/2020;20,0;100,0;16,0;80,0",
+        "N;Norte;01/01/2020;10,0;50,0;8,0;40,0",
+    ]
+    csv_path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    result = ep.process_data_files([(csv_path.name, csv_path)])
+
+    assert not result.errors
+    assert result.file_report.loc[0, "Situação"] == "Processado (CSV)"
+    assert {key for key, _ in ep.available_subsystems(result.daily)} == {
+        "SIN", "SE", "S", "NE", "N"
+    }
+    sin = result.daily.loc[result.daily["__subsystem_key"].eq("SIN")].iloc[0]
+    assert sin["ena_bruta_regiao_mwmed"] == 180.0
+    assert bool(sin["__sin_calculated"]) is True
+
+
+def test_process_data_files_accepts_mixed_csv_and_parquet(monkeypatch, tmp_path: Path) -> None:
+    csv_path = tmp_path / "ENA_DIARIO_SUBSISTEMA_2020.csv"
+    csv_path.write_text(
+        "id_subsistema;nom_subsistema;ena_data;ena_bruta_regiao_mwmed;"
+        "ena_bruta_regiao_percentualmlt;ena_armazenavel_regiao_mwmed;"
+        "ena_armazenavel_regiao_percentualmlt\n"
+        "SE;Sudeste/Centro-Oeste;01/01/2020;100;50;80;40\n",
+        encoding="utf-8",
+    )
+    parquet_path = tmp_path / "ENA_DIARIO_SUBSISTEMA_2021.parquet"
+    parquet_path.write_bytes(b"unused")
+    parquet_frame = sample_frame().assign(
+        ena_data=lambda frame: frame["ena_data"].map(
+            lambda value: value.replace(year=2021)
+        )
+    )
+    monkeypatch.setattr(pd, "read_parquet", lambda path: parquet_frame)
+
+    result = ep.process_data_files(
+        [(csv_path.name, csv_path), (parquet_path.name, parquet_path)]
+    )
+
+    assert not result.errors
+    assert set(result.file_report["Ano"]) == {2020, 2021}
+    assert set(result.file_report["Situação"]) == {
+        "Processado (CSV)", "Processado (Parquet)"
+    }

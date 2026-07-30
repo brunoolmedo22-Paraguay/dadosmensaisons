@@ -107,7 +107,7 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "select_period_copy": "Escolha o primeiro e o último ano. Os dois extremos serão incluídos.",
         "year_range": "Ano inicial e ano final",
         "download_ons": "Baixar dados do ONS",
-        "source_note": "Fontes oficiais do ONS · Formato Parquet · Processamento temporário",
+        "source_note": "Fontes oficiais do ONS · Parquet com fallback CSV para ENA histórica · Processamento temporário",
         "flow_kicker": "Fluxo da plataforma",
         "flow_title": "O que será feito?",
         "flow_lead": (
@@ -117,7 +117,7 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "step_1_title": "Localizar as três bases",
         "step_1_copy": "Consulta os catálogos oficiais de Balanço Energético, EAR e ENA.",
         "step_2_title": "Baixar e validar",
-        "step_2_copy": "Salva temporariamente os Parquets anuais e verifica o conteúdo.",
+        "step_2_copy": "Salva temporariamente os arquivos anuais; para ENA, usa CSV quando o Parquet não existe.",
         "step_3_title": "Consolidar por período",
         "step_3_copy": "Prepara uma única tabela e um único CSV diário, mensal ou anual.",
         "unexpected_error": "Ocorreu um erro inesperado em {source}: {error}",
@@ -127,7 +127,7 @@ UI_TEXT: dict[str, dict[str, str]] = {
         ),
         "no_result": "Nenhuma das bases pôde gerar resultados para o período selecionado.",
         "processed_success": (
-            "Dados de **{start}–{end}** processados: {files} arquivo(s) Parquet, "
+            "Dados de **{start}–{end}** processados: {files} arquivo(s) anual(is), "
             "{megabytes:.1f} MB."
         ),
         "source_kicker": "Conteúdo da saída",
@@ -215,7 +215,7 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "select_period_copy": "Seleccione el primer y el último año. Ambos extremos serán incluidos.",
         "year_range": "Año inicial y año final",
         "download_ons": "Descargar datos del ONS",
-        "source_note": "Fuentes oficiales del ONS · Formato Parquet · Procesamiento temporal",
+        "source_note": "Fuentes oficiales del ONS · Parquet con respaldo CSV para ENA histórica · Procesamiento temporal",
         "flow_kicker": "Flujo de la plataforma",
         "flow_title": "¿Qué se hará?",
         "flow_lead": (
@@ -225,7 +225,7 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "step_1_title": "Localizar las tres bases",
         "step_1_copy": "Consulta los catálogos oficiales de Balance Energético, EAR y ENA.",
         "step_2_title": "Descargar y validar",
-        "step_2_copy": "Guarda temporalmente los Parquet anuales y verifica el contenido.",
+        "step_2_copy": "Guarda temporalmente los archivos anuales; para ENA, usa CSV cuando no existe Parquet.",
         "step_3_title": "Consolidar por período",
         "step_3_copy": "Prepara una única tabla y un único CSV diario, mensual o anual.",
         "unexpected_error": "Se produjo un error inesperado en {source}: {error}",
@@ -235,7 +235,7 @@ UI_TEXT: dict[str, dict[str, str]] = {
         ),
         "no_result": "Ninguna de las bases pudo generar resultados para el período seleccionado.",
         "processed_success": (
-            "Datos de **{start}–{end}** procesados: {files} archivo(s) Parquet, "
+            "Datos de **{start}–{end}** procesados: {files} archivo(s) anual(es), "
             "{megabytes:.1f} MB."
         ),
         "source_kicker": "Contenido de la salida",
@@ -1078,8 +1078,8 @@ def obtain_ons_data(
         (
             "ENA",
             SOURCE_LABELS[language]["ENA"],
-            _ena_download.download_parquet_years,
-            _ena.process_parquet_files,
+            _ena_download.download_ena_years,
+            _ena.process_data_files,
             "ena",
         ),
     )
