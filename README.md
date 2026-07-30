@@ -11,7 +11,7 @@ Aplicação Streamlit unificada para baixar e analisar duas bases oficiais do ON
 2. Clique em **Baixar dados do ONS**. A aplicação obtém e valida os arquivos Parquet anuais das duas bases.
 3. No seletor segmentado entre o painel de período e o painel de resultados, marque **Balanço**, **EAR** ou as duas bases.
 4. Escolha o subsistema e a discretização: **diária**, **mensal** ou **anual**.
-5. Visualize os dados em uma única tabela e baixe um único CSV com as mesmas colunas exibidas.
+5. Visualize os dados em uma única tabela e baixe um único CSV. As colunas auxiliares de cobertura e status permanecem na tabela, mas não são exportadas.
 
 A opção horária foi removida da interface porque a base de EAR é diária. O Balanço continua sendo lido em sua resolução original e é consolidado internamente para a discretização selecionada.
 

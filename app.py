@@ -132,7 +132,7 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "full_interval": "Todo o intervalo baixado, de {start} a {end}, será incluído.",
         "no_data_config": "Não há dados para a configuração selecionada.",
         "download_csv": "Baixar dados consolidados em CSV",
-        "csv_note": "O CSV contém exatamente as colunas mostradas na tabela.",
+        "csv_note": "O CSV contém os dados consolidados, sem as colunas auxiliares de cobertura e status.",
         "summary_kicker": "Resumo da saída",
         "discretization": "Discretização",
         "result_rows": "Linhas no resultado",
@@ -211,7 +211,7 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "full_interval": "Se incluirá todo el intervalo descargado, de {start} a {end}.",
         "no_data_config": "No hay datos para la configuración seleccionada.",
         "download_csv": "Descargar datos consolidados en CSV",
-        "csv_note": "El CSV contiene exactamente las columnas mostradas en la tabla.",
+        "csv_note": "El CSV contiene los datos consolidados, sin las columnas auxiliares de cobertura y estado.",
         "summary_kicker": "Resumen de salida",
         "discretization": "Discretización",
         "result_rows": "Filas en el resultado",
@@ -402,6 +402,21 @@ st.markdown(
             min-height: 20.25rem;
             padding: 1.15rem 1.25rem;
             box-shadow: none;
+        }
+        /* Mantém o seletor Balanço/EAR alinhado à identidade visual do título. */
+        .st-key-source_selection_panel button[aria-pressed="true"] {
+            background: var(--brand) !important;
+            border-color: var(--brand) !important;
+            color: white !important;
+        }
+        .st-key-source_selection_panel button[aria-pressed="true"]:hover {
+            background: var(--brand-dark) !important;
+            border-color: var(--brand-dark) !important;
+            color: white !important;
+        }
+        .st-key-source_selection_panel button[aria-pressed="true"] p,
+        .st-key-source_selection_panel button[aria-pressed="true"] span {
+            color: white !important;
         }
         .st-key-output_panel {
             background: var(--surface);

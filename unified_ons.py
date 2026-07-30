@@ -24,6 +24,17 @@ EAR_QUALITY_RENAMES = {
     "Status do período": "Status EAR",
 }
 
+CSV_AUXILIARY_COLUMNS = (
+    "Horas com dados",
+    "Horas esperadas",
+    "Dias com dados",
+    "Dias esperados",
+    "Cobertura Balanço (%)",
+    "Cobertura EAR (%)",
+    "Status Balanço",
+    "Status EAR",
+)
+
 
 def combine_summaries(
     balance_summary: pd.DataFrame,
@@ -120,8 +131,13 @@ def combine_summaries(
 
 
 def build_unified_csv_export(data: pd.DataFrame) -> pd.DataFrame:
-    """Gera o CSV exatamente com as colunas visíveis da tabela."""
-    export = data.drop(columns=["Mês nº", "__period_start"], errors="ignore").copy()
+    """Gera o CSV sem colunas internas ou auxiliares de qualidade."""
+    excluded_columns = [
+        "Mês nº",
+        "__period_start",
+        *CSV_AUXILIARY_COLUMNS,
+    ]
+    export = data.drop(columns=excluded_columns, errors="ignore").copy()
     if "Data" in export.columns:
         export["Data"] = pd.to_datetime(export["Data"], errors="coerce").dt.strftime(
             "%d/%m/%Y"
