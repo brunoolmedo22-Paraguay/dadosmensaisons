@@ -4,30 +4,29 @@ import base64
 import importlib
 import re
 import unicodedata
-
 from datetime import date, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Sequence
+from typing import Any, Sequence
 
 import pandas as pd
 import streamlit as st
 
-import balanco_ons as _balanco_ons
+import balanco_ons as _balanco
+import ear_download as _ear_download
+import ear_processing as _ear
+import ons_download as _balance_download
+import unified_ons as _unified
 
-# Streamlit pode manter módulos auxiliares em memória durante uma atualização.
-# A recarga garante que app.py e balanco_ons.py usem sempre a mesma versão.
-_balanco_ons = importlib.reload(_balanco_ons)
+# Evita módulos auxiliares antigos na memória durante um redeploy do Streamlit.
+_balanco = importlib.reload(_balanco)
+_ear_download = importlib.reload(_ear_download)
+_ear = importlib.reload(_ear)
+_balance_download = importlib.reload(_balance_download)
+_unified = importlib.reload(_unified)
 
-Granularity = _balanco_ons.Granularity
-ProcessingResult = _balanco_ons.ProcessingResult
-available_subsystems = _balanco_ons.available_subsystems
-build_granular_csv_export = _balanco_ons.build_granular_csv_export
-build_period_summary = _balanco_ons.build_period_summary
-filter_hourly_by_subsystem = _balanco_ons.filter_hourly_by_subsystem
-process_parquet_files = _balanco_ons.process_parquet_files
-from ons_download import ONSDownloadError, download_parquet_years
-
+Granularity = _unified.Granularity
+DataSource = _unified.DataSource
 
 FIRST_AVAILABLE_YEAR = 2000
 CURRENT_YEAR = date.today().year
@@ -38,270 +37,198 @@ HERO_LOGO_DATA_URI = (
     if HERO_LOGO_PATH.exists()
     else ""
 )
-GRANULARITIES: tuple[Granularity, ...] = (
-    "hourly",
-    "daily",
-    "monthly",
-    "yearly",
-)
+
+GRANULARITIES: tuple[Granularity, ...] = ("daily", "monthly", "yearly")
 GRANULARITY_LABELS: dict[str, dict[Granularity, str]] = {
-    "PT": {
-        "hourly": "Horária",
-        "daily": "Diária",
-        "monthly": "Mensal",
-        "yearly": "Anual",
-    },
-    "ES": {
-        "hourly": "Horaria",
-        "daily": "Diaria",
-        "monthly": "Mensual",
-        "yearly": "Anual",
-    },
+    "PT": {"daily": "Diária", "monthly": "Mensal", "yearly": "Anual"},
+    "ES": {"daily": "Diaria", "monthly": "Mensual", "yearly": "Anual"},
 }
 GRANULARITY_TITLES: dict[str, dict[Granularity, str]] = {
     "PT": {
-        "hourly": "Série horária — {subsystem}",
-        "daily": "Médias diárias — {subsystem}",
+        "daily": "Dados diários — {subsystem}",
         "monthly": "Médias mensais — {subsystem}",
         "yearly": "Médias anuais — {subsystem}",
     },
     "ES": {
-        "hourly": "Serie horaria — {subsystem}",
-        "daily": "Promedios diarios — {subsystem}",
+        "daily": "Datos diarios — {subsystem}",
         "monthly": "Promedios mensuales — {subsystem}",
         "yearly": "Promedios anuales — {subsystem}",
     },
 }
 CHART_TITLES: dict[str, dict[Granularity, str]] = {
-    "PT": {
-        "hourly": "Evolução horária",
-        "daily": "Evolução diária",
-        "monthly": "Evolução mensal",
-        "yearly": "Evolução anual",
-    },
-    "ES": {
-        "hourly": "Evolución horaria",
-        "daily": "Evolución diaria",
-        "monthly": "Evolución mensual",
-        "yearly": "Evolución anual",
-    },
-}
-MONTH_LABELS: dict[str, list[str]] = {
-    "PT": [
-        "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
-        "Jul", "Ago", "Set", "Out", "Nov", "Dez",
-    ],
-    "ES": [
-        "Ene", "Feb", "Mar", "Abr", "May", "Jun",
-        "Jul", "Ago", "Sep", "Oct", "Nov", "Dic",
-    ],
+    "PT": {"daily": "Evolução diária", "monthly": "Evolução mensal", "yearly": "Evolução anual"},
+    "ES": {"daily": "Evolución diaria", "monthly": "Evolución mensual", "yearly": "Evolución anual"},
 }
 GRANULARITY_SLUGS: dict[Granularity, str] = {
-    "hourly": "horario",
     "daily": "diario",
     "monthly": "mensal",
     "yearly": "anual",
 }
+SOURCE_LABELS: dict[str, dict[DataSource, str]] = {
+    "PT": {"BALANCO": "Balanço", "EAR": "EAR"},
+    "ES": {"BALANCO": "Balance", "EAR": "EAR"},
+}
+
 UI_TEXT: dict[str, dict[str, str]] = {
     "PT": {
         "hero_kicker": "ONS · Consolidação histórica",
-        "hero_title": "Balanço Energético do SIN",
+        "hero_title": "Dados Históricos do SIN",
         "hero_copy": (
-            "Escolha o período e transforme automaticamente os dados horários "
-            "publicados pelo ONS na discretização mais adequada para sua análise."
+            "Consulte em uma única plataforma o Balanço Energético por Subsistema "
+            "e a Energia Armazenada (EAR), com saída diária, mensal ou anual."
         ),
         "empty_title": "Os resultados aparecerão aqui",
         "empty_copy": (
             "Defina o período acima e clique em <strong>Baixar dados do ONS</strong> "
             "para iniciar a análise."
         ),
-        "progress_catalog": "Consultando o catálogo do ONS...",
-        "progress_file": "Arquivo de {year} concluído ({completed}/{total})...",
-        "progress_validate": "Validando e consolidando os dados...",
+        "progress_catalog": "Consultando as bases oficiais do ONS...",
+        "progress_file": "{source}: arquivo de {year} concluído ({completed}/{total})...",
+        "progress_validate": "{source}: validando e consolidando os dados...",
         "progress_done": "Processamento concluído.",
         "auto_kicker": "Obtenção automática",
         "select_period": "Selecione o período",
-        "select_period_copy": (
-            "Escolha o primeiro e o último ano. Os dois extremos serão incluídos."
-        ),
+        "select_period_copy": "Escolha o primeiro e o último ano. Os dois extremos serão incluídos.",
         "year_range": "Ano inicial e ano final",
         "download_ons": "Baixar dados do ONS",
-        "source_note": (
-            "Fonte oficial do ONS · Formato Parquet · Processamento temporário"
-        ),
+        "source_note": "Fontes oficiais do ONS · Formato Parquet · Processamento temporário",
         "flow_kicker": "Fluxo da plataforma",
         "flow_title": "O que será feito?",
         "flow_lead": (
-            "Ao clicar no botão, a plataforma executará todo o processo "
-            "automaticamente para o período <strong>{start_year}–{end_year}</strong>."
+            "Ao clicar no botão, a plataforma obterá as duas bases para o período "
+            "<strong>{start_year}–{end_year}</strong>."
         ),
-        "step_1_title": "Localizar os arquivos",
-        "step_1_copy": (
-            "Consulta o catálogo oficial e identifica um Parquet para cada ano."
-        ),
+        "step_1_title": "Localizar as duas bases",
+        "step_1_copy": "Consulta os catálogos oficiais de Balanço Energético e EAR.",
         "step_2_title": "Baixar e validar",
-        "step_2_copy": (
-            "Salva os arquivos temporariamente e verifica o conteúdo recebido."
-        ),
-        "step_3_title": "Preparar a série do SIN",
-        "step_3_copy": (
-            "Limpa os registros horários e os deixa prontos para análise e CSV."
-        ),
-        "unexpected_error": (
-            "Ocorreu um erro inesperado durante o download ou processamento: {error}"
-        ),
+        "step_2_copy": "Salva temporariamente os Parquets anuais e verifica o conteúdo.",
+        "step_3_title": "Consolidar por período",
+        "step_3_copy": "Prepara uma única tabela e um único CSV diário, mensal ou anual.",
+        "unexpected_error": "Ocorreu um erro inesperado em {source}: {error}",
         "stale_results": (
             "Os resultados exibidos ainda correspondem a **{start}–{end}**. "
             "Clique em **{button}** para processar o novo intervalo selecionado."
         ),
-        "no_result": (
-            "Nenhum resultado pôde ser gerado. Verifique o período selecionado "
-            "e as mensagens apresentadas acima."
-        ),
+        "no_result": "Nenhuma das bases pôde gerar resultados para o período selecionado.",
         "processed_success": (
             "Dados de **{start}–{end}** processados: {files} arquivo(s) Parquet, "
             "{megabytes:.1f} MB."
         ),
+        "source_kicker": "Conteúdo da saída",
+        "source_title": "Selecione as bases que deseja visualizar",
+        "source_copy": "Marque uma ou as duas opções. A tabela, o gráfico e o CSV serão atualizados juntos.",
+        "source_selector": "Bases de dados",
+        "select_one_source": "Selecione ao menos uma base de dados.",
+        "source_unavailable": "A base {source} não foi carregada. Baixe novamente o período para incluí-la.",
         "output_kicker": "Configuração da saída",
         "output_title": "Subsistema, discretização e CSV",
         "subsystem_selector": "Subsistema",
         "granularity_selector": "Discretização dos dados",
-        "no_subsystems": "Nenhum subsistema foi encontrado nos arquivos processados.",
+        "no_subsystems": "Nenhum subsistema foi encontrado nas bases selecionadas.",
         "start_date": "Data inicial",
         "end_date": "Data final",
         "invalid_dates": "A data inicial deve ser anterior à data final.",
-        "calendar_note": (
-            "Use os dois calendários para limitar o volume exibido e exportado."
-        ),
-        "full_interval": (
-            "Todo o intervalo baixado, de {start} a {end}, será incluído."
-        ),
+        "calendar_note": "Use os dois calendários para limitar o volume exibido e exportado.",
+        "full_interval": "Todo o intervalo baixado, de {start} a {end}, será incluído.",
         "no_data_config": "Não há dados para a configuração selecionada.",
         "download_csv": "Baixar dados consolidados em CSV",
-        "csv_note": (
-            "O CSV corresponde exatamente à discretização e ao período mostrados "
-            "na tabela."
-        ),
+        "csv_note": "O CSV contém exatamente as colunas mostradas na tabela.",
         "summary_kicker": "Resumo da saída",
         "discretization": "Discretização",
         "result_rows": "Linhas no resultado",
         "complete_periods": "Períodos completos",
         "average_coverage": "Cobertura média",
         "period_shown": "Período exibido: {start} a {end}.",
-        "values_note": "Valores expressos como potência média em MWmed.",
-        "adjust_config": (
-            "Ajuste a configuração ao lado para visualizar os dados."
-        ),
+        "values_note": "Balanço em MWmed; EAR em MWmês e percentual.",
+        "adjust_config": "Ajuste a configuração ao lado para visualizar os dados.",
         "chart_empty": "O gráfico será exibido quando houver dados na tabela.",
         "metric_selector": "Grandeza",
-        "x_month": "Mês",
         "x_month_year": "Mês e ano",
-        "x_datetime": "Data e hora",
         "x_date": "Data",
         "x_year": "Ano",
         "processed_files": "Arquivos processados",
+        "base_column": "Base",
     },
     "ES": {
         "hero_kicker": "ONS · Consolidación histórica",
-        "hero_title": "Balance Energético del SIN",
+        "hero_title": "Datos Históricos del SIN",
         "hero_copy": (
-            "Seleccione el período y transforme automáticamente los datos horarios "
-            "publicados por el ONS en la discretización más adecuada para su análisis."
+            "Consulte en una única plataforma el Balance Energético por Subsistema "
+            "y la Energía Almacenada (EAR), con salida diaria, mensual o anual."
         ),
         "empty_title": "Los resultados aparecerán aquí",
         "empty_copy": (
             "Defina el período anterior y pulse <strong>Descargar datos del ONS</strong> "
             "para iniciar el análisis."
         ),
-        "progress_catalog": "Consultando el catálogo del ONS...",
-        "progress_file": "Archivo de {year} completado ({completed}/{total})...",
-        "progress_validate": "Validando y consolidando los datos...",
+        "progress_catalog": "Consultando las bases oficiales del ONS...",
+        "progress_file": "{source}: archivo de {year} completado ({completed}/{total})...",
+        "progress_validate": "{source}: validando y consolidando los datos...",
         "progress_done": "Procesamiento finalizado.",
         "auto_kicker": "Obtención automática",
         "select_period": "Seleccione el período",
-        "select_period_copy": (
-            "Seleccione el primer y el último año. Ambos extremos serán incluidos."
-        ),
+        "select_period_copy": "Seleccione el primer y el último año. Ambos extremos serán incluidos.",
         "year_range": "Año inicial y año final",
         "download_ons": "Descargar datos del ONS",
-        "source_note": (
-            "Fuente oficial del ONS · Formato Parquet · Procesamiento temporal"
-        ),
+        "source_note": "Fuentes oficiales del ONS · Formato Parquet · Procesamiento temporal",
         "flow_kicker": "Flujo de la plataforma",
         "flow_title": "¿Qué se hará?",
         "flow_lead": (
-            "Al pulsar el botón, la plataforma ejecutará automáticamente todo el "
-            "proceso para el período <strong>{start_year}–{end_year}</strong>."
+            "Al pulsar el botón, la plataforma obtendrá las dos bases para el período "
+            "<strong>{start_year}–{end_year}</strong>."
         ),
-        "step_1_title": "Localizar los archivos",
-        "step_1_copy": (
-            "Consulta el catálogo oficial e identifica un Parquet para cada año."
-        ),
+        "step_1_title": "Localizar las dos bases",
+        "step_1_copy": "Consulta los catálogos oficiales de Balance Energético y EAR.",
         "step_2_title": "Descargar y validar",
-        "step_2_copy": (
-            "Guarda temporalmente los archivos y verifica el contenido recibido."
-        ),
-        "step_3_title": "Preparar la serie del SIN",
-        "step_3_copy": (
-            "Limpia los registros horarios y los deja listos para el análisis y el CSV."
-        ),
-        "unexpected_error": (
-            "Se produjo un error inesperado durante la descarga o el procesamiento: "
-            "{error}"
-        ),
+        "step_2_copy": "Guarda temporalmente los Parquet anuales y verifica el contenido.",
+        "step_3_title": "Consolidar por período",
+        "step_3_copy": "Prepara una única tabla y un único CSV diario, mensual o anual.",
+        "unexpected_error": "Se produjo un error inesperado en {source}: {error}",
         "stale_results": (
             "Los resultados mostrados todavía corresponden a **{start}–{end}**. "
             "Pulse **{button}** para procesar el nuevo intervalo seleccionado."
         ),
-        "no_result": (
-            "No fue posible generar resultados. Verifique el período seleccionado "
-            "y los mensajes mostrados anteriormente."
-        ),
+        "no_result": "Ninguna de las bases pudo generar resultados para el período seleccionado.",
         "processed_success": (
             "Datos de **{start}–{end}** procesados: {files} archivo(s) Parquet, "
             "{megabytes:.1f} MB."
         ),
+        "source_kicker": "Contenido de la salida",
+        "source_title": "Seleccione las bases que desea visualizar",
+        "source_copy": "Marque una o ambas opciones. La tabla, el gráfico y el CSV se actualizarán juntos.",
+        "source_selector": "Bases de datos",
+        "select_one_source": "Seleccione al menos una base de datos.",
+        "source_unavailable": "La base {source} no fue cargada. Descargue nuevamente el período para incluirla.",
         "output_kicker": "Configuración de salida",
         "output_title": "Subsistema, discretización y CSV",
         "subsystem_selector": "Subsistema",
         "granularity_selector": "Discretización de los datos",
-        "no_subsystems": "No se encontraron subsistemas en los archivos procesados.",
+        "no_subsystems": "No se encontraron subsistemas en las bases seleccionadas.",
         "start_date": "Fecha inicial",
         "end_date": "Fecha final",
         "invalid_dates": "La fecha inicial debe ser anterior a la fecha final.",
-        "calendar_note": (
-            "Use los dos calendarios para limitar el volumen mostrado y exportado."
-        ),
-        "full_interval": (
-            "Se incluirá todo el intervalo descargado, de {start} a {end}."
-        ),
+        "calendar_note": "Use los dos calendarios para limitar el volumen mostrado y exportado.",
+        "full_interval": "Se incluirá todo el intervalo descargado, de {start} a {end}.",
         "no_data_config": "No hay datos para la configuración seleccionada.",
         "download_csv": "Descargar datos consolidados en CSV",
-        "csv_note": (
-            "El CSV corresponde exactamente a la discretización y al período "
-            "mostrados en la tabla."
-        ),
+        "csv_note": "El CSV contiene exactamente las columnas mostradas en la tabla.",
         "summary_kicker": "Resumen de salida",
         "discretization": "Discretización",
         "result_rows": "Filas en el resultado",
         "complete_periods": "Períodos completos",
         "average_coverage": "Cobertura promedio",
         "period_shown": "Período mostrado: {start} a {end}.",
-        "values_note": "Valores expresados como potencia promedio en MWmed.",
-        "adjust_config": (
-            "Ajuste la configuración de la derecha para visualizar los datos."
-        ),
+        "values_note": "Balance en MWmed; EAR en MWmes y porcentaje.",
+        "adjust_config": "Ajuste la configuración de la derecha para visualizar los datos.",
         "chart_empty": "El gráfico se mostrará cuando haya datos en la tabla.",
         "metric_selector": "Magnitud",
-        "x_month": "Mes",
         "x_month_year": "Mes y año",
-        "x_datetime": "Fecha y hora",
         "x_date": "Fecha",
         "x_year": "Año",
         "processed_files": "Archivos procesados",
+        "base_column": "Base",
     },
 }
-
 
 VALID_UI_LANGUAGES = ("PT", "ES")
 
@@ -311,7 +238,6 @@ def ui_text(key: str) -> str:
     if language not in VALID_UI_LANGUAGES:
         language = "PT"
     return UI_TEXT[language][key]
-
 
 st.set_page_config(
     page_title="SIN · ONS",
@@ -600,6 +526,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
 if st.session_state.get("ui_language") not in VALID_UI_LANGUAGES:
     st.session_state["ui_language"] = "PT"
 if st.session_state.get("ui_language_selector") not in VALID_UI_LANGUAGES:
@@ -635,8 +562,8 @@ def subsystem_slug(value: str) -> str:
     return slug or "subsistema"
 
 
-def csv_bytes(data: pd.DataFrame, granularity: Granularity) -> bytes:
-    return build_granular_csv_export(data, granularity).to_csv(
+def csv_bytes(data: pd.DataFrame) -> bytes:
+    return _unified.build_unified_csv_export(data).to_csv(
         index=False,
         sep=";",
         decimal=",",
@@ -645,25 +572,19 @@ def csv_bytes(data: pd.DataFrame, granularity: Granularity) -> bytes:
 
 
 def display_table(data: pd.DataFrame, metrics: Sequence[str]) -> None:
-    visible = data.drop(
-        columns=["Mês nº", "__period_start"],
-        errors="ignore",
-    )
-    config: dict[str, object] = {
+    visible = data.drop(columns=["Mês nº", "__period_start"], errors="ignore")
+    config: dict[str, Any] = {
         "Ano": st.column_config.NumberColumn(format="%d"),
-        "Data e hora": st.column_config.DatetimeColumn(
-            format="DD/MM/YYYY HH:mm",
-        ),
         "Data": st.column_config.DateColumn(format="DD/MM/YYYY"),
-        "Cobertura (%)": st.column_config.NumberColumn(format="%.1f%%"),
+        "Cobertura Balanço (%)": st.column_config.NumberColumn(format="%.1f%%"),
+        "Cobertura EAR (%)": st.column_config.NumberColumn(format="%.1f%%"),
         "Horas com dados": st.column_config.NumberColumn(format="%d"),
         "Horas esperadas": st.column_config.NumberColumn(format="%d"),
+        "Dias com dados": st.column_config.NumberColumn(format="%d"),
+        "Dias esperados": st.column_config.NumberColumn(format="%d"),
     }
     config.update(
-        {
-            metric: st.column_config.NumberColumn(format="%.2f")
-            for metric in metrics
-        }
+        {metric: st.column_config.NumberColumn(format="%.2f") for metric in metrics}
     )
     st.dataframe(
         visible,
@@ -689,33 +610,112 @@ def render_empty_state() -> None:
 def obtain_ons_data(
     start_year: int,
     end_year: int,
-) -> tuple[ProcessingResult, int]:
+) -> tuple[dict[DataSource, Any], int, list[str]]:
     years = list(range(start_year, end_year + 1))
     progress = st.progress(2, text=ui_text("progress_catalog"))
+    results: dict[DataSource, Any] = {}
+    total_bytes = 0
+    source_errors: list[str] = []
 
-    def update_progress(completed: int, total: int, year: int) -> None:
-        percentage = 5 + int(75 * completed / total)
-        progress.progress(
-            percentage,
-            text=ui_text("progress_file").format(
-                year=year, completed=completed, total=total
-            ),
-        )
+    source_specs = (
+        (
+            "BALANCO",
+            SOURCE_LABELS[language]["BALANCO"],
+            _balance_download.download_parquet_years,
+            _balanco.process_parquet_files,
+            "balanco",
+        ),
+        (
+            "EAR",
+            SOURCE_LABELS[language]["EAR"],
+            _ear_download.download_parquet_years,
+            _ear.process_parquet_files,
+            "ear",
+        ),
+    )
+    total_steps = len(years) * len(source_specs)
 
     try:
-        with TemporaryDirectory(prefix="ons_balanco_") as temporary_directory:
-            batch = download_parquet_years(
-                years=years,
-                destination=Path(temporary_directory),
-                progress_callback=update_progress,
-            )
-            progress.progress(88, text=ui_text("progress_validate"))
-            result = process_parquet_files(batch.files)
-            result.errors = [*batch.errors, *result.errors]
+        with TemporaryDirectory(prefix="ons_unificado_") as temporary_directory:
+            temporary_root = Path(temporary_directory)
+            for source_index, (
+                source_key,
+                source_label,
+                downloader,
+                processor,
+                folder_name,
+            ) in enumerate(source_specs):
+                def update_progress(
+                    completed: int,
+                    total: int,
+                    year: int,
+                    *,
+                    offset: int = source_index * len(years),
+                    label: str = source_label,
+                ) -> None:
+                    overall_completed = offset + completed
+                    percentage = 5 + int(75 * overall_completed / max(total_steps, 1))
+                    progress.progress(
+                        percentage,
+                        text=ui_text("progress_file").format(
+                            source=label,
+                            year=year,
+                            completed=completed,
+                            total=total,
+                        ),
+                    )
+
+                try:
+                    batch = downloader(
+                        years=years,
+                        destination=temporary_root / folder_name,
+                        progress_callback=update_progress,
+                    )
+                    progress.progress(
+                        82 + source_index * 7,
+                        text=ui_text("progress_validate").format(source=source_label),
+                    )
+                    result = processor(batch.files)
+                    result.errors = [*batch.errors, *result.errors]
+                    results[source_key] = result
+                    total_bytes += batch.total_bytes
+                except Exception as exc:
+                    source_errors.append(
+                        ui_text("unexpected_error").format(
+                            source=source_label,
+                            error=exc,
+                        )
+                    )
             progress.progress(100, text=ui_text("progress_done"))
-            return result, batch.total_bytes
+            return results, total_bytes, source_errors
     finally:
         progress.empty()
+
+
+def result_has_data(source: DataSource, result: Any) -> bool:
+    if result is None:
+        return False
+    if source == "BALANCO":
+        return not result.hourly.empty
+    return not result.daily.empty
+
+
+def available_sources(results: dict[DataSource, Any]) -> list[DataSource]:
+    return [source for source in _unified.DATA_SOURCES if result_has_data(source, results.get(source))]
+
+
+def unified_subsystems(
+    results: dict[DataSource, Any],
+    selected_sources: Sequence[DataSource],
+) -> list[tuple[str, str]]:
+    labels: dict[str, str] = {}
+    if "BALANCO" in selected_sources and result_has_data("BALANCO", results.get("BALANCO")):
+        labels.update(dict(_balanco.available_subsystems(results["BALANCO"].hourly)))
+    if "EAR" in selected_sources and result_has_data("EAR", results.get("EAR")):
+        for key, label in _ear.available_subsystems(results["EAR"].daily):
+            labels.setdefault(key, label)
+    order = {"SIN": 0, "SE": 1, "S": 2, "NE": 3, "N": 4}
+    return sorted(labels.items(), key=lambda item: (order.get(item[0], 99), item[1].casefold()))
 
 
 st.markdown(
@@ -772,63 +772,78 @@ with st.container(border=True, key="download_panel"):
                 </p>
                 <div class="process-step">
                     <div class="process-number">1</div>
-                    <div>
-                        <strong>{ui_text("step_1_title")}</strong>
-                        <p>{ui_text("step_1_copy")}</p>
-                    </div>
+                    <div><strong>{ui_text("step_1_title")}</strong><p>{ui_text("step_1_copy")}</p></div>
                 </div>
                 <div class="process-step">
                     <div class="process-number">2</div>
-                    <div>
-                        <strong>{ui_text("step_2_title")}</strong>
-                        <p>{ui_text("step_2_copy")}</p>
-                    </div>
+                    <div><strong>{ui_text("step_2_title")}</strong><p>{ui_text("step_2_copy")}</p></div>
                 </div>
                 <div class="process-step">
                     <div class="process-number">3</div>
-                    <div>
-                        <strong>{ui_text("step_3_title")}</strong>
-                        <p>{ui_text("step_3_copy")}</p>
-                    </div>
+                    <div><strong>{ui_text("step_3_title")}</strong><p>{ui_text("step_3_copy")}</p></div>
                 </div>
             </section>
             """,
             unsafe_allow_html=True,
         )
 
-download_error: str | None = None
+# O seletor fica exatamente entre o painel de período e o painel da tabela.
+if not isinstance(st.session_state.get("selected_data_sources"), (list, tuple)):
+    st.session_state["selected_data_sources"] = list(_unified.DATA_SOURCES)
+with st.container(border=True, key="source_selection_panel"):
+    source_text_column, source_control_column = st.columns([1.25, 1], gap="large")
+    with source_text_column:
+        st.markdown(
+            f'<div class="panel-kicker">{ui_text("source_kicker")}</div>',
+            unsafe_allow_html=True,
+        )
+        st.subheader(ui_text("source_title"))
+        st.caption(ui_text("source_copy"))
+    with source_control_column:
+        st.segmented_control(
+            ui_text("source_selector"),
+            options=list(_unified.DATA_SOURCES),
+            selection_mode="multi",
+            key="selected_data_sources",
+            format_func=lambda value: SOURCE_LABELS[language][value],
+            width="stretch",
+        )
+
+selected_sources = [
+    source
+    for source in _unified.DATA_SOURCES
+    if source in (st.session_state.get("selected_data_sources") or [])
+]
 
 if download_clicked:
-    st.session_state.pop("ons_result", None)
-    st.session_state.pop("ons_period", None)
-    st.session_state.pop("ons_download_bytes", None)
-    st.session_state.pop("subsystem_value", None)
+    for state_key in [
+        "ons_results",
+        "ons_period",
+        "ons_download_bytes",
+        "ons_source_errors",
+        "subsystem_value",
+    ]:
+        st.session_state.pop(state_key, None)
     for state_key in list(st.session_state):
-        if str(state_key).startswith(
-            ("analysis_start_", "analysis_end_")
-        ):
+        if str(state_key).startswith(("analysis_start_", "analysis_end_")):
             st.session_state.pop(state_key, None)
-    try:
-        downloaded_result, downloaded_bytes = obtain_ons_data(
-            start_year=start_year,
-            end_year=end_year,
-        )
-    except ONSDownloadError as exc:
-        download_error = str(exc)
-    except Exception as exc:
-        download_error = ui_text("unexpected_error").format(error=exc)
-    else:
-        st.session_state["ons_result"] = downloaded_result
-        st.session_state["ons_period"] = (start_year, end_year)
-        st.session_state["ons_download_bytes"] = downloaded_bytes
 
-if download_error:
-    st.error(download_error)
+    downloaded_results, downloaded_bytes, source_errors = obtain_ons_data(
+        start_year=start_year,
+        end_year=end_year,
+    )
+    st.session_state["ons_results"] = downloaded_results
+    st.session_state["ons_period"] = (start_year, end_year)
+    st.session_state["ons_download_bytes"] = downloaded_bytes
+    st.session_state["ons_source_errors"] = source_errors
 
-result = st.session_state.get("ons_result")
+results: dict[DataSource, Any] | None = st.session_state.get("ons_results")
 loaded_period = st.session_state.get("ons_period")
 
-if result is None:
+for message in st.session_state.get("ons_source_errors", []):
+    st.error(message)
+
+if results is None:
     render_empty_state()
     st.stop()
 
@@ -842,19 +857,35 @@ if loaded_period != (start_year, end_year):
         )
     )
 
-for message in result.errors:
-    st.error(message)
-for message in result.warnings:
-    st.warning(message)
+for source, source_result in results.items():
+    source_label = SOURCE_LABELS[language][source]
+    for message in source_result.errors:
+        st.error(f"{source_label}: {message}")
+    for message in source_result.warnings:
+        st.warning(f"{source_label}: {message}")
 
-if result.hourly.empty:
+loaded_sources = available_sources(results)
+if not loaded_sources:
     st.error(ui_text("no_result"))
     st.stop()
 
-downloaded_files = len(result.file_report)
-downloaded_megabytes = (
-    float(st.session_state.get("ons_download_bytes", 0)) / (1024 * 1024)
-)
+if not selected_sources:
+    st.warning(ui_text("select_one_source"))
+    st.stop()
+
+usable_sources = [source for source in selected_sources if source in loaded_sources]
+for source in selected_sources:
+    if source not in loaded_sources:
+        st.warning(
+            ui_text("source_unavailable").format(
+                source=SOURCE_LABELS[language][source]
+            )
+        )
+if not usable_sources:
+    st.stop()
+
+downloaded_files = sum(len(results[source].file_report) for source in loaded_sources)
+downloaded_megabytes = float(st.session_state.get("ons_download_bytes", 0)) / (1024 * 1024)
 st.success(
     ui_text("processed_success").format(
         start=loaded_period[0],
@@ -864,8 +895,7 @@ st.success(
     )
 )
 
-metric_columns = result.metric_columns
-subsystem_items = available_subsystems(result.hourly)
+subsystem_items = unified_subsystems(results, usable_sources)
 if not subsystem_items:
     st.error(ui_text("no_subsystems"))
     st.stop()
@@ -892,22 +922,30 @@ with st.container(border=True, key="results_panel"):
                 format_func=lambda value: subsystem_labels[value],
             )
             selected_subsystem_label = subsystem_labels[subsystem_key]
-            selected_hourly = filter_hourly_by_subsystem(
-                result.hourly, subsystem_key
-            )
-            timestamps = pd.to_datetime(
-                selected_hourly["din_instante"], errors="coerce"
-            ).dropna()
-            if timestamps.empty:
+
+            balance_data = pd.DataFrame()
+            ear_data = pd.DataFrame()
+            if "BALANCO" in usable_sources:
+                balance_data = _balanco.filter_hourly_by_subsystem(
+                    results["BALANCO"].hourly,
+                    subsystem_key,
+                )
+            if "EAR" in usable_sources:
+                ear_data = _ear.filter_daily_by_subsystem(
+                    results["EAR"].daily,
+                    subsystem_key,
+                )
+
+            bounds = _unified.source_date_bounds(balance_data, ear_data, usable_sources)
+            if bounds is None:
                 st.warning(ui_text("no_data_config"))
                 st.stop()
-            data_min = timestamps.min().date()
-            data_max = timestamps.max().date()
+            data_min, data_max = bounds
 
             granularity = st.selectbox(
                 ui_text("granularity_selector"),
                 options=GRANULARITIES,
-                index=2,
+                index=1,
                 key="granularity_value",
                 format_func=lambda value: GRANULARITY_LABELS[language][value],
             )
@@ -917,15 +955,12 @@ with st.container(border=True, key="results_panel"):
             analysis_end: date | None = None
             valid_dates = True
 
-            if granularity in {"hourly", "daily"}:
-                suggested_days = 6 if granularity == "hourly" else 30
-                suggested_start = max(
-                    data_min,
-                    data_max - timedelta(days=suggested_days),
-                )
+            if granularity == "daily":
+                suggested_start = max(data_min, data_max - timedelta(days=30))
+                source_slug = "_".join(source.lower() for source in usable_sources)
                 date_key = (
                     f"{loaded_period[0]}_{loaded_period[1]}_"
-                    f"{subsystem_slug(subsystem_key)}_{granularity}"
+                    f"{subsystem_slug(subsystem_key)}_{source_slug}_{granularity}"
                 )
                 start_column, end_column = st.columns(2, gap="small")
                 with start_column:
@@ -957,76 +992,97 @@ with st.container(border=True, key="results_panel"):
                 )
 
             if valid_dates:
-                summary = build_period_summary(
-                    selected_hourly,
-                    granularity=granularity,
-                    start_date=analysis_start,
-                    end_date=analysis_end,
+                balance_summary = (
+                    _balanco.build_period_summary(
+                        balance_data,
+                        granularity=granularity,
+                        start_date=analysis_start,
+                        end_date=analysis_end,
+                    )
+                    if "BALANCO" in usable_sources
+                    else pd.DataFrame()
+                )
+                ear_summary = (
+                    _ear.build_period_summary(
+                        ear_data,
+                        granularity=granularity,
+                        start_date=analysis_start,
+                        end_date=analysis_end,
+                    )
+                    if "EAR" in usable_sources
+                    else pd.DataFrame()
+                )
+                summary, visible_metric_columns, coverage_columns, status_columns = (
+                    _unified.combine_summaries(
+                        balance_summary=balance_summary,
+                        ear_summary=ear_summary,
+                        granularity=granularity,
+                        selected_sources=usable_sources,
+                        balance_metrics=(
+                            results["BALANCO"].metric_columns
+                            if "BALANCO" in usable_sources
+                            else ()
+                        ),
+                        ear_metrics=(
+                            results["EAR"].metric_columns
+                            if "EAR" in usable_sources
+                            else ()
+                        ),
+                    )
                 )
             else:
                 summary = pd.DataFrame()
+                visible_metric_columns = []
+                coverage_columns = []
+                status_columns = []
 
             st.divider()
             if summary.empty:
                 st.warning(ui_text("no_data_config"))
 
             if analysis_start is not None and analysis_end is not None:
-                export_period = (
-                    f"{analysis_start:%Y%m%d}-{analysis_end:%Y%m%d}"
-                )
+                export_period = f"{analysis_start:%Y%m%d}-{analysis_end:%Y%m%d}"
             else:
                 export_period = f"{loaded_period[0]}-{loaded_period[1]}"
 
+            source_export_slug = "_".join(source.lower() for source in usable_sources)
             export_name = (
-                f"balanco_{subsystem_slug(subsystem_key)}_"
-                f"{GRANULARITY_SLUGS[granularity]}_"
-                f"{export_period}.csv"
+                f"ons_{source_export_slug}_{subsystem_slug(subsystem_key)}_"
+                f"{GRANULARITY_SLUGS[granularity]}_{export_period}.csv"
             )
             st.download_button(
                 ui_text("download_csv"),
-                data=(
-                    csv_bytes(summary, granularity)
-                    if not summary.empty
-                    else b""
-                ),
+                data=csv_bytes(summary) if not summary.empty else b"",
                 file_name=export_name,
                 mime="text/csv",
                 type="primary",
                 width="stretch",
                 disabled=summary.empty,
             )
-            st.caption(
-                ui_text("csv_note")
-            )
+            st.caption(ui_text("csv_note"))
 
         if not summary.empty:
-            complete_periods = int(
-                summary["Status do período"].eq("Completo").sum()
+            if status_columns:
+                complete_mask = summary[status_columns].fillna("").eq("Completo").all(axis=1)
+                complete_periods = int(complete_mask.sum())
+            else:
+                complete_periods = 0
+            coverage = (
+                float(summary[coverage_columns].stack().mean())
+                if coverage_columns
+                else 0.0
             )
-            coverage = float(summary["Cobertura (%)"].mean())
             with st.container(border=True, key="output_kpis"):
                 st.markdown(
                     f'<div class="panel-kicker">{ui_text("summary_kicker")}</div>',
                     unsafe_allow_html=True,
                 )
                 first_metric_row = st.columns(2, gap="small")
-                first_metric_row[0].metric(
-                    ui_text("discretization"),
-                    granularity_label,
-                )
-                first_metric_row[1].metric(
-                    ui_text("result_rows"),
-                    len(summary),
-                )
+                first_metric_row[0].metric(ui_text("discretization"), granularity_label)
+                first_metric_row[1].metric(ui_text("result_rows"), len(summary))
                 second_metric_row = st.columns(2, gap="small")
-                second_metric_row[0].metric(
-                    ui_text("complete_periods"),
-                    complete_periods,
-                )
-                second_metric_row[1].metric(
-                    ui_text("average_coverage"),
-                    f"{coverage:.1f}%",
-                )
+                second_metric_row[0].metric(ui_text("complete_periods"), complete_periods)
+                second_metric_row[1].metric(ui_text("average_coverage"), f"{coverage:.1f}%")
 
     with table_column:
         st.subheader(
@@ -1034,7 +1090,7 @@ with st.container(border=True, key="results_panel"):
                 subsystem=selected_subsystem_label
             )
         )
-        if granularity in {"hourly", "daily"} and analysis_start and analysis_end:
+        if granularity == "daily" and analysis_start and analysis_end:
             table_note = ui_text("period_shown").format(
                 start=f"{analysis_start:%d/%m/%Y}",
                 end=f"{analysis_end:%d/%m/%Y}",
@@ -1050,17 +1106,17 @@ with st.container(border=True, key="results_panel"):
         if summary.empty:
             st.info(ui_text("adjust_config"))
         else:
-            visible_metric_columns = [
-                column for column in metric_columns if column in summary.columns
-            ]
             display_table(summary, visible_metric_columns)
 
 chart_column, report_column = st.columns([1.55, 1], gap="large")
 with chart_column:
     st.subheader(CHART_TITLES[language][granularity])
-    if summary.empty:
+    if summary.empty or not visible_metric_columns:
         st.info(ui_text("chart_empty"))
     else:
+        current_chart_metric = st.session_state.get("chart_metric")
+        if current_chart_metric not in visible_metric_columns:
+            st.session_state.pop("chart_metric", None)
         chart_metric = st.selectbox(
             ui_text("metric_selector"),
             options=visible_metric_columns,
@@ -1068,14 +1124,8 @@ with chart_column:
             key="chart_metric",
         )
         if granularity == "monthly":
-            chart = (
-                summary.sort_values("__period_start", kind="stable")
-                .set_index("__period_start")[[chart_metric]]
-            )
+            chart = summary.sort_values("__period_start", kind="stable").set_index("__period_start")[[chart_metric]]
             x_label = ui_text("x_month_year")
-        elif granularity == "hourly":
-            chart = summary.set_index("Data e hora")[[chart_metric]]
-            x_label = ui_text("x_datetime")
         elif granularity == "daily":
             chart = summary.set_index("Data")[[chart_metric]]
             x_label = ui_text("x_date")
@@ -1086,15 +1136,23 @@ with chart_column:
 
 with report_column:
     st.subheader(ui_text("processed_files"))
+    report_frames: list[pd.DataFrame] = []
+    for source in usable_sources:
+        report = results[source].file_report.copy()
+        report.insert(0, ui_text("base_column"), SOURCE_LABELS[language][source])
+        report_frames.append(report)
+    unified_report = pd.concat(report_frames, ignore_index=True, sort=False) if report_frames else pd.DataFrame()
     st.dataframe(
-        result.file_report,
+        unified_report,
         width="stretch",
         hide_index=True,
-        height=min(445, 96 + 35 * len(result.file_report)),
+        height=min(445, 96 + 35 * len(unified_report)),
         column_config={
             "Ano": st.column_config.NumberColumn(format="%d"),
             "Linhas horárias do SIN": st.column_config.NumberColumn(format="%d"),
+            "Linhas diárias": st.column_config.NumberColumn(format="%d"),
             "Meses": st.column_config.NumberColumn(format="%d"),
+            "Subsistemas": st.column_config.NumberColumn(format="%d"),
             "Duplicatas removidas": st.column_config.NumberColumn(format="%d"),
         },
     )

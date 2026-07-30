@@ -1,130 +1,32 @@
-# Balanço Energético do SIN
+# Dados Mensais ONS — Balanço + EAR
 
-Aplicação Streamlit que consulta o Portal de Dados Abertos do ONS e transforma
-os arquivos horários de **Balanço de Energia por Subsistema** em séries
-históricas horárias, diárias, mensais ou anuais do Sistema Interligado Nacional
-(SIN) ou de qualquer subsistema disponível nos arquivos do ONS.
+Aplicação Streamlit unificada para baixar e analisar duas bases oficiais do ONS:
 
-## Fluxo automático
+- **Balanço Energético por Subsistema**;
+- **Energia Armazenada (EAR) diária por Subsistema**.
 
-1. O usuário escolhe o ano inicial e o ano final.
-2. Ao clicar em **Baixar dados do ONS**, a aplicação consulta a página oficial
-   do conjunto de dados.
-3. O código identifica por web scraping os links anuais em formato Parquet.
-4. Os arquivos correspondentes ao período são baixados para uma pasta
-   temporária.
-5. A aplicação valida, consolida e guarda a série horária limpa na sessão do
-   Streamlit.
-6. A pasta temporária e os Parquet são eliminados automaticamente.
-7. O usuário escolhe o subsistema e a discretização e baixa o CSV correspondente.
+## Funcionamento
 
-Não é necessário baixar ou carregar arquivos manualmente.
+1. Selecione o intervalo de anos.
+2. Clique em **Baixar dados do ONS**. A aplicação obtém e valida os arquivos Parquet anuais das duas bases.
+3. No seletor segmentado entre o painel de período e o painel de resultados, marque **Balanço**, **EAR** ou as duas bases.
+4. Escolha o subsistema e a discretização: **diária**, **mensal** ou **anual**.
+5. Visualize os dados em uma única tabela e baixe um único CSV com as mesmas colunas exibidas.
 
-Fonte consultada:
+A opção horária foi removida da interface porque a base de EAR é diária. O Balanço continua sendo lido em sua resolução original e é consolidado internamente para a discretização selecionada.
 
-```text
-https://dados.ons.org.br/dataset/balanco-energia-subsistema
-```
+## Execução local
 
-## Processamento
-
-- valida o ano do recurso contra as datas internas;
-- preserva os registros de todos os subsistemas disponíveis;
-- apresenta `SIN` como subsistema padrão e permite selecionar os demais;
-- converte datas e valores numéricos;
-- descarta registros inválidos;
-- evita contagem dupla quando há horários repetidos;
-- oferece discretização horária, diária, mensal e anual;
-- permite limitar por data inicial e final nas visualizações horária e diária;
-- calcula a média de cada coluna dentro do período selecionado;
-- informa horas disponíveis, horas esperadas e cobertura de cada período;
-- adapta a tabela e o gráfico à discretização selecionada;
-- exporta exatamente a saída visível em CSV compatível com Excel em português.
-
-As colunas conhecidas são apresentadas com nomes amigáveis:
-
-| Coluna do ONS | Saída |
-| --- | --- |
-| `val_gerhidraulica` | Geração hidráulica (MWmed) |
-| `val_gertermica` | Geração térmica (MWmed) |
-| `val_gereolica` | Geração eólica (MWmed) |
-| `val_gersolar` | Geração solar (MWmed) |
-| `val_carga` | Carga (MWmed) |
-| `val_intercambio` | Intercâmbio (MWmed) |
-
-Outras colunas iniciadas por `val_` também são consolidadas automaticamente na
-tabela e no gráfico.
-
-## Regra de cálculo
-
-Para cada período da discretização selecionada:
-
-```text
-média do período = soma dos valores horários válidos / quantidade de valores válidos
-```
-
-A consolidação usa diretamente as linhas do subsistema selecionado. O `SIN` é
-a opção padrão. Os subsistemas regionais não são somados para reconstruir o
-SIN, evitando distorções nos valores de intercâmbio.
-
-Um período é marcado como **Parcial** quando possui menos registros horários que
-o total esperado para sua duração. A média continua sendo calculada com os
-valores válidos disponíveis.
-
-## Executar localmente
-
-Requer Python 3.10 ou superior e acesso à internet.
-
-### Windows
-
-```powershell
-python -m venv .venv
-.venv\Scripts\activate
-python -m pip install -r requirements.txt
+```bash
+pip install -r requirements.txt
 streamlit run app.py
 ```
 
-### Linux ou macOS
+## Arquivos principais
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-streamlit run app.py
-```
-
-## Publicar no Streamlit Community Cloud
-
-1. Envie os arquivos do projeto para um repositório GitHub.
-2. No Streamlit Community Cloud, escolha **Create app**.
-3. Selecione o repositório, a branch `main` e o arquivo `app.py`.
-4. Em **Advanced settings**, selecione Python 3.12.
-5. Clique em **Deploy**.
-
-O servidor onde a aplicação for publicada precisa permitir conexões HTTPS com:
-
-- `dados.ons.org.br`;
-- `ons-aws-prod-opendata.s3.amazonaws.com`.
-
-## Estrutura
-
-- `app.py`: interface e estado da sessão;
-- `ons_download.py`: scraping, download e validação dos Parquet;
-- `balanco_ons.py`: limpeza e agregação horária, diária, mensal e anual;
-- `tests/`: testes automatizados.
-
-## Testes
-
-```bash
-python -m unittest discover -s tests -v
-```
-
-## Atualização v12
-
-O carregamento de `balanco_ons.py` agora força a recarga do módulo auxiliar antes de acessar as funções de subsistema. Isso evita incompatibilidade entre o `app.py` novo e uma versão antiga mantida em memória pelo Streamlit durante o redeploy.
-
-
-## Ajuste v13
-
-- O seletor PT/ES agora mantém obrigatoriamente um idioma ativo.
-- Ao clicar novamente no idioma selecionado, a seleção é restaurada automaticamente.
+- `app.py`: interface e fluxo unificado;
+- `balanco_ons.py`: processamento do Balanço Energético;
+- `ons_download.py`: download do Balanço Energético;
+- `ear_processing.py`: processamento da EAR;
+- `ear_download.py`: download da EAR;
+- `unified_ons.py`: junção temporal, tabela e CSV unificados.
