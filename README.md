@@ -12,7 +12,7 @@ Aplicação Streamlit unificada para baixar e analisar três bases oficiais do O
 2. Clique em **Baixar dados do ONS**. A aplicação processa **Balanço, EAR e ENA em paralelo**, cada base em uma pasta temporária independente. Dentro de cada base, os anos permanecem sequenciais para limitar as conexões simultâneas com o portal. Para ENA, prioriza Parquet e usa automaticamente o CSV oficial quando o Parquet do ano não existe ou falha.
 3. No seletor segmentado entre o painel de período e o painel de resultados, marque **Balanço**, **EAR**, **ENA** ou qualquer combinação entre elas.
 4. Escolha o subsistema e a discretização: **diária**, **mensal** ou **anual**.
-5. Visualize os dados em uma única tabela e baixe um único CSV. As colunas auxiliares de cobertura e status permanecem na tabela, mas não são exportadas.
+5. Visualize os dados em uma única tabela com vírgula decimal e baixe um único CSV no padrão regional: separador `;` entre colunas e decimal `,`. As colunas auxiliares de cobertura e status permanecem na tabela, mas não são exportadas.
 6. No **Painel de gráficos**, escolha de forma independente o subsistema, a discretização e o intervalo. A aplicação mostra um gráfico para cada base compatível marcada no seletor superior e oferece download individual em SVG.
 7. Consulte **Arquivos processados** no último painel da página.
 

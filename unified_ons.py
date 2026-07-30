@@ -167,6 +167,53 @@ def build_unified_csv_export(data: pd.DataFrame) -> pd.DataFrame:
     return export
 
 
+
+def localize_table_numbers(
+    data: pd.DataFrame,
+    *,
+    decimal_columns: Sequence[str] = (),
+    percentage_columns: Sequence[str] = (),
+) -> pd.DataFrame:
+    """Formata apenas a cópia exibida na tabela com vírgula decimal."""
+    result = data.copy()
+
+    def decimal_text(value: object, decimals: int, suffix: str = "") -> str:
+        if pd.isna(value):
+            return ""
+        return f"{float(value):.{decimals}f}".replace(".", ",") + suffix
+
+    for column in decimal_columns:
+        if column in result.columns:
+            result[column] = result[column].map(lambda value: decimal_text(value, 2))
+    for column in percentage_columns:
+        if column in result.columns:
+            result[column] = result[column].map(
+                lambda value: decimal_text(value, 1, "%")
+            )
+    return result
+
+def serialize_unified_csv(
+    data: pd.DataFrame,
+    *,
+    separator: str,
+    decimal: str,
+) -> bytes:
+    """Exporta a tabela unificada em uma convenção CSV explicitamente escolhida."""
+    if separator not in {",", ";"}:
+        raise ValueError("Separador CSV inválido.")
+    if decimal not in {".", ","}:
+        raise ValueError("Separador decimal inválido.")
+    if separator == decimal:
+        raise ValueError("O separador de colunas e o separador decimal devem ser diferentes.")
+
+    content = build_unified_csv_export(data).to_csv(
+        index=False,
+        sep=separator,
+        decimal=decimal,
+    )
+    return content.encode("utf-8-sig")
+
+
 def source_date_bounds(
     balance_data: pd.DataFrame,
     ear_data: pd.DataFrame,

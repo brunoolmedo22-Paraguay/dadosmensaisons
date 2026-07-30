@@ -148,8 +148,11 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "calendar_note": "Use os dois calendários para limitar o volume exibido e exportado.",
         "full_interval": "Todo o intervalo baixado, de {start} a {end}, será incluído.",
         "no_data_config": "Não há dados para a configuração selecionada.",
-        "download_csv": "Baixar dados consolidados em CSV",
-        "csv_note": "O CSV contém os dados consolidados, sem as colunas auxiliares de cobertura e status.",
+        "download_csv": "Baixar CSV · separador ; · decimal ,",
+        "csv_note": (
+            "O arquivo usa ponto e vírgula (;) entre colunas e vírgula (,) como "
+            "separador decimal. As colunas auxiliares de cobertura e status não são exportadas."
+        ),
         "summary_kicker": "Resumo da saída",
         "discretization": "Discretização",
         "result_rows": "Linhas no resultado",
@@ -256,8 +259,11 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "calendar_note": "Use los dos calendarios para limitar el volumen mostrado y exportado.",
         "full_interval": "Se incluirá todo el intervalo descargado, de {start} a {end}.",
         "no_data_config": "No hay datos para la configuración seleccionada.",
-        "download_csv": "Descargar datos consolidados en CSV",
-        "csv_note": "El CSV contiene los datos consolidados, sin las columnas auxiliares de cobertura y estado.",
+        "download_csv": "Descargar CSV · separador ; · decimal ,",
+        "csv_note": (
+            "El archivo usa punto y coma (;) entre columnas y coma (,) como separador "
+            "decimal. Las columnas auxiliares de cobertura y estado no se exportan."
+        ),
         "summary_kicker": "Resumen de salida",
         "discretization": "Discretización",
         "result_rows": "Filas en el resultado",
@@ -724,22 +730,29 @@ def subsystem_slug(value: str) -> str:
 
 
 def csv_bytes(data: pd.DataFrame) -> bytes:
-    return _unified.build_unified_csv_export(data).to_csv(
-        index=False,
-        sep=";",
+    """Serializa a saída no padrão regional adotado pela plataforma."""
+    return _unified.serialize_unified_csv(
+        data,
+        separator=";",
         decimal=",",
-        encoding="utf-8-sig",
-    ).encode("utf-8-sig")
+    )
 
 
 def display_table(data: pd.DataFrame, metrics: Sequence[str]) -> None:
     visible = data.drop(columns=["Mês nº", "__period_start"], errors="ignore")
+    percentage_columns = [
+        "Cobertura Balanço (%)",
+        "Cobertura EAR (%)",
+        "Cobertura ENA (%)",
+    ]
+    visible = _unified.localize_table_numbers(
+        visible,
+        decimal_columns=metrics,
+        percentage_columns=percentage_columns,
+    )
     config: dict[str, Any] = {
         "Ano": st.column_config.NumberColumn(format="%d"),
         "Data": st.column_config.DateColumn(format="DD/MM/YYYY"),
-        "Cobertura Balanço (%)": st.column_config.NumberColumn(format="%.1f%%"),
-        "Cobertura EAR (%)": st.column_config.NumberColumn(format="%.1f%%"),
-        "Cobertura ENA (%)": st.column_config.NumberColumn(format="%.1f%%"),
         "Horas com dados": st.column_config.NumberColumn(format="%d"),
         "Horas esperadas": st.column_config.NumberColumn(format="%d"),
         "Dias com dados": st.column_config.NumberColumn(format="%d"),
@@ -748,7 +761,11 @@ def display_table(data: pd.DataFrame, metrics: Sequence[str]) -> None:
         "Dias esperados ENA": st.column_config.NumberColumn(format="%d"),
     }
     config.update(
-        {metric: st.column_config.NumberColumn(format="%.2f") for metric in metrics}
+        {
+            column: st.column_config.TextColumn()
+            for column in [*metrics, *percentage_columns]
+            if column in visible.columns
+        }
     )
     st.dataframe(
         visible,
@@ -1552,7 +1569,7 @@ with st.container(border=True, key="results_panel"):
             )
             st.download_button(
                 ui_text("download_csv"),
-                data=csv_bytes(summary) if not summary.empty else b"",
+                data=(csv_bytes(summary) if not summary.empty else b""),
                 file_name=export_name,
                 mime="text/csv",
                 type="primary",
