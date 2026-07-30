@@ -19,16 +19,18 @@ class ChartPanelStructureTests(unittest.TestCase):
         processed_position = self.source.index('key="processed_files_panel"')
         self.assertLess(chart_position, processed_position)
         self.assertNotIn("st.line_chart", self.source)
+        self.assertIn("st.plotly_chart", self.source)
         self.assertIn("chart_subsystem_value", self.source)
         self.assertIn("chart_granularity_value", self.source)
         self.assertIn('mime="image/svg+xml"', self.source)
 
     def test_compact_grid_and_inline_controls(self) -> None:
-        self.assertIn('first_chart_row = st.columns(2, gap="small")', self.source)
-        self.assertIn('second_chart_row = st.columns(2, gap="small")', self.source)
-        self.assertIn('control_columns = st.columns([1.42, 1]', self.source)
+        self.assertIn('chart_panel_columns = st.columns([0.95, 1.95], gap="small")', self.source)
         self.assertIn('config_columns = st.columns(2, gap="small")', self.source)
         self.assertIn('chart_date_columns = st.columns(2, gap="small")', self.source)
+        self.assertIn('render_chart_controls_and_exports(', self.source)
+        self.assertIn('build_combined_plotly_chart(', self.source)
+        self.assertIn('st.plotly_chart(', self.source)
         self.assertNotIn("min-height: 31rem", self.source)
 
     def test_hourly_is_chart_only_and_filters_non_hourly_sources(self) -> None:

@@ -11,7 +11,9 @@ from tempfile import TemporaryDirectory
 from typing import Any, Literal, Sequence
 
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
+from plotly.subplots import make_subplots
 
 import balanco_ons as _balanco
 import ear_download as _ear_download
@@ -727,7 +729,8 @@ st.markdown(
             margin-bottom: .18rem;
         }
         .st-key-chart_config_card,
-        [class*="st-key-chart_card_"] {
+        .st-key-chart_stack_card,
+        [class*="st-key-chart_control_"] {
             background: color-mix(
                 in srgb,
                 var(--secondary-background-color) 84%,
@@ -740,12 +743,19 @@ st.markdown(
             box-shadow: none;
         }
         .st-key-chart_config_card [data-testid="stVerticalBlock"],
-        [class*="st-key-chart_card_"] [data-testid="stVerticalBlock"] {
+        .st-key-chart_stack_card [data-testid="stVerticalBlock"],
+        [class*="st-key-chart_control_"] [data-testid="stVerticalBlock"] {
             gap: .36rem;
         }
-        [class*="st-key-chart_card_"] {
+        [class*="st-key-chart_control_"] {
             display: flex;
             flex-direction: column;
+        }
+        .st-key-chart_stack_card {
+            padding: .38rem .42rem .25rem;
+        }
+        .st-key-combined_chart_figure {
+            margin-top: -.2rem;
         }
         .chart-source-pill {
             display: inline-flex;
@@ -1078,6 +1088,181 @@ def svg_line_chart(
     return svg.encode("utf-8")
 
 
+
+
+def chart_tick_configuration(
+    granularity: ChartGranularity,
+    start_date: date,
+    end_date: date,
+) -> dict[str, Any]:
+    span_days = max((end_date - start_date).days, 1)
+    if granularity in {"monthly", "yearly", "daily"}:
+        return {
+            "tickmode": "linear",
+            "tick0": f"{start_date.year}-01-01",
+            "dtick": "M12",
+            "tickformat": "%Y",
+            "tickangle": 0 if span_days <= 3650 else -45,
+        }
+    if span_days <= 14:
+        return {
+            "tickformat": "%d/%m\n%Hh",
+            "dtick": 24 * 60 * 60 * 1000,
+            "tickangle": 0,
+        }
+    if span_days <= 120:
+        return {
+            "tickformat": "%d/%m/%y",
+            "dtick": 7 * 24 * 60 * 60 * 1000,
+            "tickangle": 0,
+        }
+    return {
+        "tickformat": "%m/%Y",
+        "dtick": "M1",
+        "tickangle": -45,
+    }
+
+
+def build_combined_plotly_chart(
+    series_specs: list[dict[str, Any]],
+    granularity: ChartGranularity,
+    start_date: date,
+    end_date: date,
+) -> go.Figure:
+    rows = len(series_specs)
+    figure = make_subplots(
+        rows=rows,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.04 if rows > 1 else 0.02,
+        subplot_titles=[spec["title"] for spec in series_specs],
+    )
+
+    for row_number, spec in enumerate(series_specs, start=1):
+        frame = spec["summary"][["__period_start", spec["metric"]]].copy()
+        frame["__period_start"] = pd.to_datetime(frame["__period_start"], errors="coerce")
+        frame[spec["metric"]] = pd.to_numeric(frame[spec["metric"]], errors="coerce")
+        frame = frame.dropna().sort_values("__period_start", kind="stable")
+        if frame.empty:
+            continue
+
+        hover_template = (
+            "%{x|%d/%m/%Y %H:%M}<br>%{y:,.2f}<extra></extra>"
+            if granularity == "hourly"
+            else "%{x|%d/%m/%Y}<br>%{y:,.2f}<extra></extra>"
+            if granularity == "daily"
+            else "%{x|%m/%Y}<br>%{y:,.2f}<extra></extra>"
+            if granularity == "monthly"
+            else "%{x|%Y}<br>%{y:,.2f}<extra></extra>"
+        )
+
+        figure.add_trace(
+            go.Scatter(
+                x=frame["__period_start"],
+                y=frame[spec["metric"]],
+                mode="lines",
+                line={"color": "#0b7a80", "width": 2.4},
+                name=spec["title"],
+                hovertemplate=hover_template,
+                showlegend=False,
+            ),
+            row=row_number,
+            col=1,
+        )
+        figure.update_yaxes(
+            title_text=spec["metric"],
+            row=row_number,
+            col=1,
+            gridcolor="#dde7e8",
+            zeroline=False,
+            showline=True,
+            linecolor="#a5b6b8",
+            mirror=False,
+            tickfont={"size": 11, "color": "#526164"},
+            title_font={"size": 12, "color": "#526164"},
+        )
+
+    tick_config = chart_tick_configuration(granularity, start_date, end_date)
+    for row_number in range(1, rows + 1):
+        figure.update_xaxes(
+            row=row_number,
+            col=1,
+            showgrid=True,
+            gridcolor="#eef3f4",
+            showline=True,
+            linecolor="#a5b6b8",
+            tickfont={"size": 11, "color": "#526164"},
+            showspikes=True,
+            spikemode="across",
+            spikesnap="cursor",
+            spikethickness=1,
+            spikecolor="#7a8f91",
+            **tick_config,
+        )
+
+    figure.update_layout(
+        height=250 * rows + 40,
+        margin={"l": 20, "r": 14, "t": 56, "b": 32},
+        paper_bgcolor="#ffffff",
+        plot_bgcolor="#ffffff",
+        hovermode="x",
+        spikedistance=-1,
+        dragmode="pan",
+        font={"family": "Arial, sans-serif", "color": "#17383b"},
+        title={
+            "text": " ",
+            "x": 0.0,
+        },
+    )
+    return figure
+
+
+def render_chart_controls_and_exports(
+    chart_specs: list[dict[str, Any]],
+    subsystem_key: str,
+    granularity: ChartGranularity,
+    start_date: date,
+    end_date: date,
+) -> None:
+    for spec in chart_specs:
+        source = spec["source"]
+        source_label = SOURCE_LABELS[language][source]
+        with st.container(border=True, key=f"chart_control_{source.lower()}"):
+            st.markdown(
+                f'<div class="chart-source-pill">{html.escape(source_label)}</div>',
+                unsafe_allow_html=True,
+            )
+            metric = st.selectbox(
+                ui_text("chart_metric_selector"),
+                options=spec["metrics"],
+                key=f"chart_metric_{source.lower()}",
+            )
+            spec["metric"] = metric
+            period_label = (
+                f"{spec['subsystem_label']} · "
+                f"{GRANULARITY_LABELS[language][granularity]} · "
+                f"{ui_text('chart_period').format(start=start_date.strftime('%d/%m/%Y'), end=end_date.strftime('%d/%m/%Y'))}"
+            )
+            svg_bytes = svg_line_chart(
+                summary=spec["summary"],
+                metric=metric,
+                granularity=granularity,
+                title=f"{source_label} — {metric}",
+                period_label=period_label,
+            )
+            file_name = (
+                f"grafico_{source.lower()}_{subsystem_slug(subsystem_key)}_"
+                f"{GRANULARITY_SLUGS[granularity]}_{start_date:%Y%m%d}-"
+                f"{end_date:%Y%m%d}_{subsystem_slug(metric)}.svg"
+            )
+            st.download_button(
+                ui_text("chart_download_svg"),
+                data=svg_bytes,
+                file_name=file_name,
+                mime="image/svg+xml",
+                width="stretch",
+                key=f"download_svg_{source.lower()}",
+            )
 def render_chart_card(
     results: dict[DataSource, Any],
     source: DataSource,
@@ -1754,7 +1939,7 @@ with st.container(border=True, key="charts_panel"):
     st.subheader(ui_text("charts_title"))
     st.caption(ui_text("charts_copy"))
 
-    first_chart_row = st.columns(2, gap="small")
+    chart_panel_columns = st.columns([0.95, 1.95], gap="small")
     chart_ready = False
     chart_start = None
     chart_end = None
@@ -1762,8 +1947,9 @@ with st.container(border=True, key="charts_panel"):
     chart_subsystem_key = chart_subsystem_keys[0]
     chart_subsystem_label = chart_subsystem_labels[chart_subsystem_key]
     chart_sources: list[DataSource] = []
+    chart_specs: list[dict[str, Any]] = []
 
-    with first_chart_row[0]:
+    with chart_panel_columns[0]:
         with st.container(border=True, key="chart_config_card"):
             st.markdown(
                 f'<div class="panel-kicker">{ui_text("charts_config_title")}</div>',
@@ -1792,7 +1978,6 @@ with st.container(border=True, key="charts_panel"):
                 )
             chart_subsystem_label = chart_subsystem_labels[chart_subsystem_key]
 
-            # Na discretização horária, somente o Balanço possui dados compatíveis.
             chart_sources = (
                 ["BALANCO"]
                 if chart_granularity == "hourly" and "BALANCO" in usable_sources
@@ -1846,8 +2031,6 @@ with st.container(border=True, key="charts_panel"):
                 else:
                     suggested_chart_start = chart_data_min
 
-                # Cada discretização conserva seu intervalo, mas o subsistema não
-                # participa da chave. Assim, explorar outro subsistema mantém as datas.
                 chart_start_key = f"chart_start_{chart_granularity}"
                 chart_end_key = f"chart_end_{chart_granularity}"
                 preserve_date_state(
@@ -1882,36 +2065,67 @@ with st.container(border=True, key="charts_panel"):
                     st.error(ui_text("invalid_dates"))
                 else:
                     chart_ready = True
-
-            if chart_granularity == "hourly":
-                st.caption(ui_text("charts_hourly_note"))
-
-    if chart_sources and chart_ready and chart_start and chart_end:
-        with first_chart_row[1]:
-            render_chart_card(
-                results=results,
-                source=chart_sources[0],
-                subsystem_key=chart_subsystem_key,
-                granularity=chart_granularity,
-                start_date=chart_start,
-                end_date=chart_end,
-                selected_subsystem_label=chart_subsystem_label,
-            )
-
-        remaining_chart_sources = chart_sources[1:]
-        if remaining_chart_sources:
-            second_chart_row = st.columns(2, gap="small")
-            for chart_column, source in zip(second_chart_row, remaining_chart_sources):
-                with chart_column:
-                    render_chart_card(
-                        results=results,
-                        source=source,
+                    for source in chart_sources:
+                        summary, metrics = build_source_chart_summary(
+                            results=results,
+                            source=source,
+                            subsystem_key=chart_subsystem_key,
+                            granularity=chart_granularity,
+                            start_date=chart_start,
+                            end_date=chart_end,
+                        )
+                        if summary.empty or not metrics:
+                            continue
+                        metric_key = f"chart_metric_{source.lower()}"
+                        if st.session_state.get(metric_key) not in metrics:
+                            st.session_state[metric_key] = metrics[0]
+                        chart_specs.append(
+                            {
+                                "source": source,
+                                "summary": summary,
+                                "metrics": metrics,
+                                "subsystem_label": chart_subsystem_label,
+                                "metric": st.session_state[metric_key],
+                                "title": f"{SOURCE_LABELS[language][source]} — {st.session_state[metric_key]}",
+                            }
+                        )
+                    render_chart_controls_and_exports(
+                        chart_specs=chart_specs,
                         subsystem_key=chart_subsystem_key,
                         granularity=chart_granularity,
                         start_date=chart_start,
                         end_date=chart_end,
-                        selected_subsystem_label=chart_subsystem_label,
                     )
+
+            if chart_granularity == "hourly":
+                st.caption(ui_text("charts_hourly_note"))
+
+    if chart_specs and chart_ready and chart_start and chart_end:
+        with chart_panel_columns[1]:
+            with st.container(border=True, key="chart_stack_card"):
+                combined_figure = build_combined_plotly_chart(
+                    chart_specs,
+                    granularity=chart_granularity,
+                    start_date=chart_start,
+                    end_date=chart_end,
+                )
+                st.plotly_chart(
+                    combined_figure,
+                    use_container_width=True,
+                    key="combined_chart_figure",
+                    config={
+                        "displaylogo": False,
+                        "modeBarButtonsToRemove": [
+                            "lasso2d",
+                            "select2d",
+                            "autoScale2d",
+                        ],
+                    },
+                )
+    elif chart_ready:
+        with chart_panel_columns[1]:
+            with st.container(border=True, key="chart_stack_card"):
+                st.info(ui_text("chart_no_data"))
 
 # A rastreabilidade fica no último painel da página.
 with st.container(border=True, key="processed_files_panel"):
