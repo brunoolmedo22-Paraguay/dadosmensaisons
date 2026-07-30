@@ -15,6 +15,8 @@ import streamlit as st
 import balanco_ons as _balanco
 import ear_download as _ear_download
 import ear_processing as _ear
+import ena_download as _ena_download
+import ena_processing as _ena
 import ons_download as _balance_download
 import unified_ons as _unified
 
@@ -22,6 +24,8 @@ import unified_ons as _unified
 _balanco = importlib.reload(_balanco)
 _ear_download = importlib.reload(_ear_download)
 _ear = importlib.reload(_ear)
+_ena_download = importlib.reload(_ena_download)
+_ena = importlib.reload(_ena)
 _balance_download = importlib.reload(_balance_download)
 _unified = importlib.reload(_unified)
 
@@ -65,8 +69,8 @@ GRANULARITY_SLUGS: dict[Granularity, str] = {
     "yearly": "anual",
 }
 SOURCE_LABELS: dict[str, dict[DataSource, str]] = {
-    "PT": {"BALANCO": "Balanço", "EAR": "EAR"},
-    "ES": {"BALANCO": "Balance", "EAR": "EAR"},
+    "PT": {"BALANCO": "Balanço", "EAR": "EAR", "ENA": "ENA"},
+    "ES": {"BALANCO": "Balance", "EAR": "EAR", "ENA": "ENA"},
 }
 
 UI_TEXT: dict[str, dict[str, str]] = {
@@ -74,8 +78,9 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "hero_kicker": "ONS · Consolidação histórica",
         "hero_title": "Dados Históricos do SIN",
         "hero_copy": (
-            "Consulte em uma única plataforma o Balanço Energético por Subsistema "
-            "e a Energia Armazenada (EAR), com saída diária, mensal ou anual."
+            "Consulte em uma única plataforma o Balanço Energético por Subsistema, "
+            "a Energia Armazenada (EAR) e a Energia Natural Afluente (ENA), "
+            "com saída diária, mensal ou anual."
         ),
         "empty_title": "Os resultados aparecerão aqui",
         "empty_copy": (
@@ -95,11 +100,11 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "flow_kicker": "Fluxo da plataforma",
         "flow_title": "O que será feito?",
         "flow_lead": (
-            "Ao clicar no botão, a plataforma obterá as duas bases para o período "
+            "Ao clicar no botão, a plataforma obterá as três bases para o período "
             "<strong>{start_year}–{end_year}</strong>."
         ),
-        "step_1_title": "Localizar as duas bases",
-        "step_1_copy": "Consulta os catálogos oficiais de Balanço Energético e EAR.",
+        "step_1_title": "Localizar as três bases",
+        "step_1_copy": "Consulta os catálogos oficiais de Balanço Energético, EAR e ENA.",
         "step_2_title": "Baixar e validar",
         "step_2_copy": "Salva temporariamente os Parquets anuais e verifica o conteúdo.",
         "step_3_title": "Consolidar por período",
@@ -116,7 +121,7 @@ UI_TEXT: dict[str, dict[str, str]] = {
         ),
         "source_kicker": "Conteúdo da saída",
         "source_title": "Selecione as bases que deseja visualizar",
-        "source_copy": "Marque uma ou as duas opções. A tabela, o gráfico e o CSV serão atualizados juntos.",
+        "source_copy": "Marque uma, duas ou as três opções. A tabela, o gráfico e o CSV serão atualizados juntos.",
         "source_selector": "Bases de dados",
         "select_one_source": "Selecione ao menos uma base de dados.",
         "source_unavailable": "A base {source} não foi carregada. Baixe novamente o período para incluí-la.",
@@ -139,7 +144,7 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "complete_periods": "Períodos completos",
         "average_coverage": "Cobertura média",
         "period_shown": "Período exibido: {start} a {end}.",
-        "values_note": "Balanço em MWmed; EAR em MWmês e percentual.",
+        "values_note": "Balanço em MWmed; EAR em MWmês e percentual; ENA em MWmed e % da MLT.",
         "adjust_config": "Ajuste a configuração ao lado para visualizar os dados.",
         "chart_empty": "O gráfico será exibido quando houver dados na tabela.",
         "metric_selector": "Grandeza",
@@ -153,8 +158,9 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "hero_kicker": "ONS · Consolidación histórica",
         "hero_title": "Datos Históricos del SIN",
         "hero_copy": (
-            "Consulte en una única plataforma el Balance Energético por Subsistema "
-            "y la Energía Almacenada (EAR), con salida diaria, mensual o anual."
+            "Consulte en una única plataforma el Balance Energético por Subsistema, "
+            "la Energía Almacenada (EAR) y la Energía Natural Afluente (ENA), "
+            "con salida diaria, mensual o anual."
         ),
         "empty_title": "Los resultados aparecerán aquí",
         "empty_copy": (
@@ -174,11 +180,11 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "flow_kicker": "Flujo de la plataforma",
         "flow_title": "¿Qué se hará?",
         "flow_lead": (
-            "Al pulsar el botón, la plataforma obtendrá las dos bases para el período "
+            "Al pulsar el botón, la plataforma obtendrá las tres bases para el período "
             "<strong>{start_year}–{end_year}</strong>."
         ),
-        "step_1_title": "Localizar las dos bases",
-        "step_1_copy": "Consulta los catálogos oficiales de Balance Energético y EAR.",
+        "step_1_title": "Localizar las tres bases",
+        "step_1_copy": "Consulta los catálogos oficiales de Balance Energético, EAR y ENA.",
         "step_2_title": "Descargar y validar",
         "step_2_copy": "Guarda temporalmente los Parquet anuales y verifica el contenido.",
         "step_3_title": "Consolidar por período",
@@ -195,7 +201,7 @@ UI_TEXT: dict[str, dict[str, str]] = {
         ),
         "source_kicker": "Contenido de la salida",
         "source_title": "Seleccione las bases que desea visualizar",
-        "source_copy": "Marque una o ambas opciones. La tabla, el gráfico y el CSV se actualizarán juntos.",
+        "source_copy": "Marque una, dos o las tres opciones. La tabla, el gráfico y el CSV se actualizarán juntos.",
         "source_selector": "Bases de datos",
         "select_one_source": "Seleccione al menos una base de datos.",
         "source_unavailable": "La base {source} no fue cargada. Descargue nuevamente el período para incluirla.",
@@ -218,7 +224,7 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "complete_periods": "Períodos completos",
         "average_coverage": "Cobertura promedio",
         "period_shown": "Período mostrado: {start} a {end}.",
-        "values_note": "Balance en MWmed; EAR en MWmes y porcentaje.",
+        "values_note": "Balance en MWmed; EAR en MWmes y porcentaje; ENA en MWmed y % de la MLT.",
         "adjust_config": "Ajuste la configuración de la derecha para visualizar los datos.",
         "chart_empty": "El gráfico se mostrará cuando haya datos en la tabla.",
         "metric_selector": "Magnitud",
@@ -403,7 +409,7 @@ st.markdown(
             padding: 1.15rem 1.25rem;
             box-shadow: none;
         }
-        /* Mantém o seletor Balanço/EAR alinhado à identidade visual do título. */
+        /* Mantém o seletor Balanço/EAR/ENA alinhado à identidade visual do título. */
         .st-key-source_selection_panel button[aria-pressed="true"] {
             background: var(--brand) !important;
             border-color: var(--brand) !important;
@@ -593,10 +599,13 @@ def display_table(data: pd.DataFrame, metrics: Sequence[str]) -> None:
         "Data": st.column_config.DateColumn(format="DD/MM/YYYY"),
         "Cobertura Balanço (%)": st.column_config.NumberColumn(format="%.1f%%"),
         "Cobertura EAR (%)": st.column_config.NumberColumn(format="%.1f%%"),
+        "Cobertura ENA (%)": st.column_config.NumberColumn(format="%.1f%%"),
         "Horas com dados": st.column_config.NumberColumn(format="%d"),
         "Horas esperadas": st.column_config.NumberColumn(format="%d"),
         "Dias com dados": st.column_config.NumberColumn(format="%d"),
         "Dias esperados": st.column_config.NumberColumn(format="%d"),
+        "Dias com dados ENA": st.column_config.NumberColumn(format="%d"),
+        "Dias esperados ENA": st.column_config.NumberColumn(format="%d"),
     }
     config.update(
         {metric: st.column_config.NumberColumn(format="%.2f") for metric in metrics}
@@ -646,6 +655,13 @@ def obtain_ons_data(
             _ear_download.download_parquet_years,
             _ear.process_parquet_files,
             "ear",
+        ),
+        (
+            "ENA",
+            SOURCE_LABELS[language]["ENA"],
+            _ena_download.download_parquet_years,
+            _ena.process_parquet_files,
+            "ena",
         ),
     )
     total_steps = len(years) * len(source_specs)
@@ -728,6 +744,9 @@ def unified_subsystems(
         labels.update(dict(_balanco.available_subsystems(results["BALANCO"].hourly)))
     if "EAR" in selected_sources and result_has_data("EAR", results.get("EAR")):
         for key, label in _ear.available_subsystems(results["EAR"].daily):
+            labels.setdefault(key, label)
+    if "ENA" in selected_sources and result_has_data("ENA", results.get("ENA")):
+        for key, label in _ena.available_subsystems(results["ENA"].daily):
             labels.setdefault(key, label)
     order = {"SIN": 0, "SE": 1, "S": 2, "NE": 3, "N": 4}
     return sorted(labels.items(), key=lambda item: (order.get(item[0], 99), item[1].casefold()))
@@ -940,6 +959,7 @@ with st.container(border=True, key="results_panel"):
 
             balance_data = pd.DataFrame()
             ear_data = pd.DataFrame()
+            ena_data = pd.DataFrame()
             if "BALANCO" in usable_sources:
                 balance_data = _balanco.filter_hourly_by_subsystem(
                     results["BALANCO"].hourly,
@@ -950,8 +970,18 @@ with st.container(border=True, key="results_panel"):
                     results["EAR"].daily,
                     subsystem_key,
                 )
+            if "ENA" in usable_sources:
+                ena_data = _ena.filter_daily_by_subsystem(
+                    results["ENA"].daily,
+                    subsystem_key,
+                )
 
-            bounds = _unified.source_date_bounds(balance_data, ear_data, usable_sources)
+            bounds = _unified.source_date_bounds(
+                balance_data,
+                ear_data,
+                usable_sources,
+                ena_data=ena_data,
+            )
             if bounds is None:
                 st.warning(ui_text("no_data_config"))
                 st.stop()
@@ -1027,10 +1057,21 @@ with st.container(border=True, key="results_panel"):
                     if "EAR" in usable_sources
                     else pd.DataFrame()
                 )
+                ena_summary = (
+                    _ena.build_period_summary(
+                        ena_data,
+                        granularity=granularity,
+                        start_date=analysis_start,
+                        end_date=analysis_end,
+                    )
+                    if "ENA" in usable_sources
+                    else pd.DataFrame()
+                )
                 summary, visible_metric_columns, coverage_columns, status_columns = (
                     _unified.combine_summaries(
                         balance_summary=balance_summary,
                         ear_summary=ear_summary,
+                        ena_summary=ena_summary,
                         granularity=granularity,
                         selected_sources=usable_sources,
                         balance_metrics=(
@@ -1041,6 +1082,11 @@ with st.container(border=True, key="results_panel"):
                         ear_metrics=(
                             results["EAR"].metric_columns
                             if "EAR" in usable_sources
+                            else ()
+                        ),
+                        ena_metrics=(
+                            results["ENA"].metric_columns
+                            if "ENA" in usable_sources
                             else ()
                         ),
                     )

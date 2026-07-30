@@ -94,3 +94,59 @@ def test_csv_excludes_auxiliary_quality_columns() -> None:
 
     assert list(export.columns) == ["Data", "Carga (MWmed)", "EAR verificada (%)"]
     assert export.loc[0, "Data"] == "01/01/2026"
+
+
+def test_combines_ena_without_colliding_with_ear_day_quality() -> None:
+    balance = pd.DataFrame()
+    ear = pd.DataFrame(
+        {
+            "Data": [pd.Timestamp("2026-01-01").date()],
+            "__period_start": [pd.Timestamp("2026-01-01")],
+            "EAR verificada (%)": [72.5],
+            "Dias com dados": [1],
+            "Dias esperados": [1],
+            "Cobertura (%)": [100.0],
+            "Status do período": ["Completo"],
+        }
+    )
+    ena = pd.DataFrame(
+        {
+            "Data": [pd.Timestamp("2026-01-01").date()],
+            "__period_start": [pd.Timestamp("2026-01-01")],
+            "ENA bruta (MWmed)": [55_000.0],
+            "Dias com dados": [1],
+            "Dias esperados": [1],
+            "Cobertura (%)": [100.0],
+            "Status do período": ["Completo"],
+        }
+    )
+    result, metrics, coverage, status = combine_summaries(
+        balance_summary=balance,
+        ear_summary=ear,
+        ena_summary=ena,
+        granularity="daily",
+        selected_sources=["EAR", "ENA"],
+        ear_metrics=["EAR verificada (%)"],
+        ena_metrics=["ENA bruta (MWmed)"],
+    )
+    assert result.loc[0, "Dias com dados"] == 1
+    assert result.loc[0, "Dias com dados ENA"] == 1
+    assert metrics == ["EAR verificada (%)", "ENA bruta (MWmed)"]
+    assert coverage == ["Cobertura EAR (%)", "Cobertura ENA (%)"]
+    assert status == ["Status EAR", "Status ENA"]
+
+
+def test_csv_excludes_ena_quality_columns() -> None:
+    data = pd.DataFrame(
+        {
+            "Data": [pd.Timestamp("2026-01-01").date()],
+            "ENA bruta (MWmed)": [55_000.0],
+            "Dias com dados ENA": [1],
+            "Dias esperados ENA": [1],
+            "Cobertura ENA (%)": [100.0],
+            "Status ENA": ["Completo"],
+            "__period_start": [pd.Timestamp("2026-01-01")],
+        }
+    )
+    export = build_unified_csv_export(data)
+    assert list(export.columns) == ["Data", "ENA bruta (MWmed)"]

@@ -6,9 +6,9 @@ from typing import Literal, Sequence
 import pandas as pd
 
 Granularity = Literal["daily", "monthly", "yearly"]
-DataSource = Literal["BALANCO", "EAR"]
+DataSource = Literal["BALANCO", "EAR", "ENA"]
 
-DATA_SOURCES: tuple[DataSource, ...] = ("BALANCO", "EAR")
+DATA_SOURCES: tuple[DataSource, ...] = ("BALANCO", "EAR", "ENA")
 PERIOD_COLUMNS: dict[Granularity, list[str]] = {
     "daily": ["Data"],
     "monthly": ["Ano", "Mês"],
@@ -23,16 +23,26 @@ EAR_QUALITY_RENAMES = {
     "Cobertura (%)": "Cobertura EAR (%)",
     "Status do período": "Status EAR",
 }
+ENA_QUALITY_RENAMES = {
+    "Dias com dados": "Dias com dados ENA",
+    "Dias esperados": "Dias esperados ENA",
+    "Cobertura (%)": "Cobertura ENA (%)",
+    "Status do período": "Status ENA",
+}
 
 CSV_AUXILIARY_COLUMNS = (
     "Horas com dados",
     "Horas esperadas",
     "Dias com dados",
     "Dias esperados",
+    "Dias com dados ENA",
+    "Dias esperados ENA",
     "Cobertura Balanço (%)",
     "Cobertura EAR (%)",
+    "Cobertura ENA (%)",
     "Status Balanço",
     "Status EAR",
+    "Status ENA",
 )
 
 
@@ -43,6 +53,8 @@ def combine_summaries(
     selected_sources: Sequence[DataSource],
     balance_metrics: Sequence[str] = (),
     ear_metrics: Sequence[str] = (),
+    ena_summary: pd.DataFrame | None = None,
+    ena_metrics: Sequence[str] = (),
 ) -> tuple[pd.DataFrame, list[str], list[str], list[str]]:
     """Une as bases selecionadas em uma única série temporal.
 
@@ -62,39 +74,47 @@ def combine_summaries(
     coverage_columns: list[str] = []
     status_columns: list[str] = []
 
-    if "BALANCO" in selected and not balance_summary.empty:
-        balance = _prepare_source_frame(
+    source_specs = (
+        (
+            "BALANCO",
             balance_summary,
-            metric_candidates=balance_metrics,
-            quality_renames=BALANCE_QUALITY_RENAMES,
-        )
-        frames.append(balance)
-        metric_columns.extend(
-            column for column in balance_metrics if column in balance.columns
-        )
-        coverage_columns.extend(
-            column
-            for column in ["Cobertura Balanço (%)"]
-            if column in balance.columns
-        )
-        status_columns.extend(
-            column for column in ["Status Balanço"] if column in balance.columns
-        )
-
-    if "EAR" in selected and not ear_summary.empty:
-        ear = _prepare_source_frame(
+            balance_metrics,
+            BALANCE_QUALITY_RENAMES,
+            "Cobertura Balanço (%)",
+            "Status Balanço",
+        ),
+        (
+            "EAR",
             ear_summary,
-            metric_candidates=ear_metrics,
-            quality_renames=EAR_QUALITY_RENAMES,
+            ear_metrics,
+            EAR_QUALITY_RENAMES,
+            "Cobertura EAR (%)",
+            "Status EAR",
+        ),
+        (
+            "ENA",
+            ena_summary if ena_summary is not None else pd.DataFrame(),
+            ena_metrics,
+            ENA_QUALITY_RENAMES,
+            "Cobertura ENA (%)",
+            "Status ENA",
+        ),
+    )
+
+    for source, summary, metrics, quality_renames, coverage_name, status_name in source_specs:
+        if source not in selected or summary.empty:
+            continue
+        prepared = _prepare_source_frame(
+            summary,
+            metric_candidates=metrics,
+            quality_renames=quality_renames,
         )
-        frames.append(ear)
-        metric_columns.extend(column for column in ear_metrics if column in ear.columns)
-        coverage_columns.extend(
-            column for column in ["Cobertura EAR (%)"] if column in ear.columns
-        )
-        status_columns.extend(
-            column for column in ["Status EAR"] if column in ear.columns
-        )
+        frames.append(prepared)
+        metric_columns.extend(column for column in metrics if column in prepared.columns)
+        if coverage_name in prepared.columns:
+            coverage_columns.append(coverage_name)
+        if status_name in prepared.columns:
+            status_columns.append(status_name)
 
     if not frames:
         return pd.DataFrame(), [], [], []
@@ -114,6 +134,8 @@ def combine_summaries(
             "Horas esperadas",
             "Dias com dados",
             "Dias esperados",
+            "Dias com dados ENA",
+            "Dias esperados ENA",
             *coverage_columns,
             *status_columns,
         ]
@@ -149,6 +171,7 @@ def source_date_bounds(
     balance_data: pd.DataFrame,
     ear_data: pd.DataFrame,
     selected_sources: Sequence[DataSource],
+    ena_data: pd.DataFrame | None = None,
 ) -> tuple[date, date] | None:
     """Retorna o menor e o maior dia disponíveis nas bases selecionadas."""
     dates: list[pd.Series] = []
@@ -158,6 +181,9 @@ def source_date_bounds(
     if "EAR" in selected_sources and not ear_data.empty:
         if "ear_data" in ear_data.columns:
             dates.append(pd.to_datetime(ear_data["ear_data"], errors="coerce"))
+    if "ENA" in selected_sources and ena_data is not None and not ena_data.empty:
+        if "ena_data" in ena_data.columns:
+            dates.append(pd.to_datetime(ena_data["ena_data"], errors="coerce"))
     if not dates:
         return None
     combined = pd.concat(dates, ignore_index=True).dropna()
@@ -184,9 +210,11 @@ def _prepare_source_frame(
             "Horas esperadas",
             "Dias com dados",
             "Dias esperados",
+            "Dias com dados ENA",
+            "Dias esperados ENA",
             *quality_renames.values(),
         ]
-        if column in frame.columns
+        if column in frame.columns and column not in keep
     )
     return frame[keep].copy()
 
