@@ -39,6 +39,16 @@ class ChartPanelStructureTests(unittest.TestCase):
         self.assertIn('chart_granularity == "hourly"', self.source)
 
 
+    def test_subsystem_changes_do_not_reset_date_state(self) -> None:
+        self.assertIn('analysis_start_key = "analysis_start_date"', self.source)
+        self.assertIn('analysis_end_key = "analysis_end_date"', self.source)
+        self.assertIn('chart_start_key = f"chart_start_{chart_granularity}"', self.source)
+        self.assertIn('chart_end_key = f"chart_end_{chart_granularity}"', self.source)
+        self.assertNotIn('subsystem_slug(subsystem_key)}_{source_slug}_{granularity}', self.source)
+        self.assertNotIn('subsystem_slug(chart_subsystem_key)}_{chart_granularity}', self.source)
+        self.assertIn('preserve_date_state(', self.source)
+
+
 class SvgChartTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:

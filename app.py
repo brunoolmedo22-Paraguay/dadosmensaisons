@@ -324,6 +324,24 @@ def ui_text(key: str) -> str:
     return UI_TEXT[language][key]
 
 
+def preserve_date_state(
+    state_key: str,
+    *,
+    default: date,
+    min_value: date,
+    max_value: date,
+) -> date:
+    """Mantém a data escolhida entre reruns e só a limita aos dados disponíveis."""
+    current = st.session_state.get(state_key, default)
+    if isinstance(current, pd.Timestamp):
+        current = current.date()
+    if not isinstance(current, date):
+        current = default
+    current = max(min_value, min(current, max_value))
+    st.session_state[state_key] = current
+    return current
+
+
 def render_sin_ena_method_note() -> None:
     """Exibe a metodologia do SIN calculado sem ocupar o seletor de subsistema."""
     with st.container(border=True, key="sin_ena_method_note"):
@@ -1382,10 +1400,21 @@ if download_clicked:
         "ons_download_bytes",
         "ons_source_errors",
         "subsystem_value",
+        "analysis_start_date",
+        "analysis_end_date",
+        "chart_start_hourly",
+        "chart_end_hourly",
+        "chart_start_daily",
+        "chart_end_daily",
+        "chart_start_monthly",
+        "chart_end_monthly",
+        "chart_start_yearly",
+        "chart_end_yearly",
     ]:
         st.session_state.pop(state_key, None)
+    # Remove também chaves dinâmicas de versões anteriores da plataforma.
     for state_key in list(st.session_state):
-        if str(state_key).startswith(("analysis_start_", "analysis_end_")):
+        if str(state_key).startswith(("analysis_start_", "analysis_end_", "chart_start_", "chart_end_")):
             st.session_state.pop(state_key, None)
 
     downloaded_results, downloaded_bytes, source_errors = obtain_ons_data(
@@ -1528,27 +1557,36 @@ with st.container(border=True, key="results_panel"):
 
             if granularity == "daily":
                 suggested_start = max(data_min, data_max - timedelta(days=30))
-                source_slug = "_".join(source.lower() for source in usable_sources)
-                date_key = (
-                    f"{loaded_period[0]}_{loaded_period[1]}_"
-                    f"{subsystem_slug(subsystem_key)}_{source_slug}_{granularity}"
+                # Subsistema e datas são controles irmãos: trocar o subsistema não
+                # cria um novo estado nem restaura o intervalo sugerido.
+                analysis_start_key = "analysis_start_date"
+                analysis_end_key = "analysis_end_date"
+                preserve_date_state(
+                    analysis_start_key,
+                    default=suggested_start,
+                    min_value=data_min,
+                    max_value=data_max,
+                )
+                preserve_date_state(
+                    analysis_end_key,
+                    default=data_max,
+                    min_value=data_min,
+                    max_value=data_max,
                 )
                 start_column, end_column = st.columns(2, gap="small")
                 with start_column:
                     analysis_start = st.date_input(
                         ui_text("start_date"),
-                        value=suggested_start,
                         min_value=data_min,
                         max_value=data_max,
-                        key=f"analysis_start_{date_key}",
+                        key=analysis_start_key,
                     )
                 with end_column:
                     analysis_end = st.date_input(
                         ui_text("end_date"),
-                        value=data_max,
                         min_value=data_min,
                         max_value=data_max,
-                        key=f"analysis_end_{date_key}",
+                        key=analysis_end_key,
                     )
                 if analysis_start > analysis_end:
                     st.error(ui_text("invalid_dates"))
@@ -1808,26 +1846,36 @@ with st.container(border=True, key="charts_panel"):
                 else:
                     suggested_chart_start = chart_data_min
 
-                chart_date_key = (
-                    f"{loaded_period[0]}_{loaded_period[1]}_"
-                    f"{subsystem_slug(chart_subsystem_key)}_{chart_granularity}"
+                # Cada discretização conserva seu intervalo, mas o subsistema não
+                # participa da chave. Assim, explorar outro subsistema mantém as datas.
+                chart_start_key = f"chart_start_{chart_granularity}"
+                chart_end_key = f"chart_end_{chart_granularity}"
+                preserve_date_state(
+                    chart_start_key,
+                    default=suggested_chart_start,
+                    min_value=chart_data_min,
+                    max_value=chart_data_max,
+                )
+                preserve_date_state(
+                    chart_end_key,
+                    default=chart_data_max,
+                    min_value=chart_data_min,
+                    max_value=chart_data_max,
                 )
                 chart_date_columns = st.columns(2, gap="small")
                 with chart_date_columns[0]:
                     chart_start = st.date_input(
                         ui_text("start_date"),
-                        value=suggested_chart_start,
                         min_value=chart_data_min,
                         max_value=chart_data_max,
-                        key=f"chart_start_{chart_date_key}",
+                        key=chart_start_key,
                     )
                 with chart_date_columns[1]:
                     chart_end = st.date_input(
                         ui_text("end_date"),
-                        value=chart_data_max,
                         min_value=chart_data_min,
                         max_value=chart_data_max,
-                        key=f"chart_end_{chart_date_key}",
+                        key=chart_end_key,
                     )
 
                 if chart_start > chart_end:
