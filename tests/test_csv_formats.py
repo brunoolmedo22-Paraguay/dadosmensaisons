@@ -59,3 +59,20 @@ def test_app_offers_only_regional_csv_download() -> None:
     assert "download_csv_regional" not in source
     assert "_standard.csv" not in source
     assert "_regional.csv" not in source
+
+
+def test_csv_button_is_simple_and_method_note_follows_csv_caption() -> None:
+    source = (Path(__file__).resolve().parents[1] / "app.py").read_text(encoding="utf-8")
+    assert '"download_csv": "Baixar CSV"' in source
+    assert '"download_csv": "Descargar CSV"' in source
+    assert "Baixar CSV ·" not in source
+    assert "Descargar CSV ·" not in source
+
+    caption_position = source.index('st.caption(ui_text("csv_note"))')
+    note_position = source.index("render_sin_ena_method_note()", caption_position)
+    charts_position = source.index('key="charts_panel"')
+    assert caption_position < note_position < charts_position
+    assert source.count("                render_sin_ena_method_note()") == 1
+    assert 'st.info(ui_text("sin_ena_calculation_note"))' not in source
+    assert 'st.latex(r"MLT_i = ' in source
+    assert "ena-info-icon" in source

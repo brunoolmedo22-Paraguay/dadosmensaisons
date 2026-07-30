@@ -148,7 +148,7 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "calendar_note": "Use os dois calendários para limitar o volume exibido e exportado.",
         "full_interval": "Todo o intervalo baixado, de {start} a {end}, será incluído.",
         "no_data_config": "Não há dados para a configuração selecionada.",
-        "download_csv": "Baixar CSV · separador ; · decimal ,",
+        "download_csv": "Baixar CSV",
         "csv_note": (
             "O arquivo usa ponto e vírgula (;) entre colunas e vírgula (,) como "
             "separador decimal. As colunas auxiliares de cobertura e status não são exportadas."
@@ -180,12 +180,14 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "processed_kicker": "Rastreabilidade",
         "processed_copy": "Relação dos arquivos anuais efetivamente utilizados no processamento.",
         "sin_ena_calculated_label": "SIN · ENA calculada",
-        "sin_ena_calculation_note": (
-            "**ENA do SIN calculada.** A base diária de ENA não fornece uma série própria "
-            "para o SIN. A plataforma só calcula o valor quando SE/CO, Sul, Nordeste e "
-            "Norte estão presentes no mesmo dia. Para cada subsistema: "
-            r"$MLT_i = ENA_i / (\%MLT_i/100)$; depois: "
-            r"$\%MLT_{SIN} = 100\,\sum_i ENA_i / \sum_i MLT_i$. "
+        "sin_ena_note_title": "ENA do SIN calculada.",
+        "sin_ena_note_intro": (
+            "A base diária de ENA não fornece uma série própria para o SIN. "
+            "A plataforma só calcula o valor quando SE/CO, Sul, Nordeste e Norte "
+            "estão presentes no mesmo dia. Para cada subsistema:"
+        ),
+        "sin_ena_note_between": "Depois:",
+        "sin_ena_note_outro": (
             "Se faltar qualquer um dos quatro subsistemas, o SIN não é calculado."
         ),
         "adjust_config": "Ajuste a configuração ao lado para visualizar os dados.",
@@ -259,7 +261,7 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "calendar_note": "Use los dos calendarios para limitar el volumen mostrado y exportado.",
         "full_interval": "Se incluirá todo el intervalo descargado, de {start} a {end}.",
         "no_data_config": "No hay datos para la configuración seleccionada.",
-        "download_csv": "Descargar CSV · separador ; · decimal ,",
+        "download_csv": "Descargar CSV",
         "csv_note": (
             "El archivo usa punto y coma (;) entre columnas y coma (,) como separador "
             "decimal. Las columnas auxiliares de cobertura y estado no se exportan."
@@ -291,12 +293,14 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "processed_kicker": "Trazabilidad",
         "processed_copy": "Relación de los archivos anuales utilizados efectivamente en el procesamiento.",
         "sin_ena_calculated_label": "SIN · ENA calculada",
-        "sin_ena_calculation_note": (
-            "**ENA del SIN calculada.** La base diaria de ENA no suministra una serie propia "
-            "para el SIN. La plataforma solo calcula el valor cuando SE/CO, Sur, Nordeste y "
-            "Norte están presentes el mismo día. Para cada subsistema: "
-            r"$MLT_i = ENA_i / (\%MLT_i/100)$; después: "
-            r"$\%MLT_{SIN} = 100\,\sum_i ENA_i / \sum_i MLT_i$. "
+        "sin_ena_note_title": "ENA del SIN calculada.",
+        "sin_ena_note_intro": (
+            "La base diaria de ENA no suministra una serie propia para el SIN. "
+            "La plataforma solo calcula el valor cuando SE/CO, Sur, Nordeste y Norte "
+            "están presentes el mismo día. Para cada subsistema:"
+        ),
+        "sin_ena_note_between": "Después:",
+        "sin_ena_note_outro": (
             "Si falta cualquiera de los cuatro subsistemas, el SIN no se calcula."
         ),
         "adjust_config": "Ajuste la configuración de la derecha para visualizar los datos.",
@@ -318,6 +322,34 @@ def ui_text(key: str) -> str:
     if language not in VALID_UI_LANGUAGES:
         language = "PT"
     return UI_TEXT[language][key]
+
+
+def render_sin_ena_method_note() -> None:
+    """Exibe a metodologia do SIN calculado sem ocupar o seletor de subsistema."""
+    with st.container(border=True, key="sin_ena_method_note"):
+        st.markdown(
+            (
+                '<div class="ena-method-copy">'
+                '<span class="ena-info-icon" aria-hidden="true">i</span>'
+                f'<em><strong>{ui_text("sin_ena_note_title")}</strong> '
+                f'{ui_text("sin_ena_note_intro")}</em>'
+                '</div>'
+            ),
+            unsafe_allow_html=True,
+        )
+        st.latex(r"MLT_i = \frac{ENA_i}{\left(\%MLT_i/100\right)}")
+        st.markdown(
+            f'<div class="ena-method-transition"><em>{ui_text("sin_ena_note_between")}</em></div>',
+            unsafe_allow_html=True,
+        )
+        st.latex(
+            r"\%MLT_{\mathrm{SIN}} = "
+            r"100\,\frac{\sum_i ENA_i}{\sum_i MLT_i}"
+        )
+        st.markdown(
+            f'<div class="ena-method-outro"><em>{ui_text("sin_ena_note_outro")}</em></div>',
+            unsafe_allow_html=True,
+        )
 
 st.set_page_config(
     page_title="SIN · ONS",
@@ -504,6 +536,50 @@ st.markdown(
             border-radius: 18px;
             padding: 1.05rem 1.15rem;
             box-shadow: none;
+        }
+        .st-key-sin_ena_method_note {
+            background: color-mix(in srgb, var(--brand) 7%, var(--surface));
+            border: none !important;
+            border-left: 3px solid var(--brand) !important;
+            border-radius: 12px;
+            padding: .65rem .8rem .55rem;
+            margin-top: .45rem;
+        }
+        .st-key-sin_ena_method_note [data-testid="stVerticalBlock"] {
+            gap: .12rem;
+        }
+        .st-key-sin_ena_method_note [data-testid="stMarkdownContainer"] p {
+            margin: 0;
+            color: var(--muted);
+            font-size: .82rem;
+            line-height: 1.35;
+        }
+        .st-key-sin_ena_method_note [data-testid="stLatex"] {
+            margin: -.08rem 0;
+        }
+        .ena-method-copy {
+            display: flex;
+            align-items: flex-start;
+            gap: .52rem;
+        }
+        .ena-info-icon {
+            display: inline-grid;
+            place-items: center;
+            flex: 0 0 1.18rem;
+            width: 1.18rem;
+            height: 1.18rem;
+            margin-top: .05rem;
+            border-radius: 50%;
+            color: white;
+            background: var(--brand);
+            font-family: Georgia, serif;
+            font-size: .78rem;
+            font-style: italic;
+            font-weight: 700;
+        }
+        .ena-method-transition,
+        .ena-method-outro {
+            padding-left: 1.7rem;
         }
         .st-key-output_kpis {
             background: var(--surface);
@@ -1406,12 +1482,6 @@ with st.container(border=True, key="results_panel"):
                 format_func=lambda value: subsystem_labels[value],
             )
             selected_subsystem_label = subsystem_labels[subsystem_key]
-            if (
-                subsystem_key == "SIN"
-                and "ENA" in usable_sources
-                and ena_has_calculated_sin(results)
-            ):
-                st.info(ui_text("sin_ena_calculation_note"))
 
             balance_data = pd.DataFrame()
             ear_data = pd.DataFrame()
@@ -1577,6 +1647,12 @@ with st.container(border=True, key="results_panel"):
                 disabled=summary.empty,
             )
             st.caption(ui_text("csv_note"))
+            if (
+                subsystem_key == "SIN"
+                and "ENA" in usable_sources
+                and ena_has_calculated_sin(results)
+            ):
+                render_sin_ena_method_note()
 
         if not summary.empty:
             if status_columns:
@@ -1761,12 +1837,6 @@ with st.container(border=True, key="charts_panel"):
 
             if chart_granularity == "hourly":
                 st.caption(ui_text("charts_hourly_note"))
-            elif (
-                chart_subsystem_key == "SIN"
-                and "ENA" in usable_sources
-                and ena_has_calculated_sin(results)
-            ):
-                st.info(ui_text("sin_ena_calculation_note"))
 
     if chart_sources and chart_ready and chart_start and chart_end:
         with first_chart_row[1]:
