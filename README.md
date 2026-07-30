@@ -13,8 +13,12 @@ Aplicação Streamlit unificada para baixar e analisar três bases oficiais do O
 3. No seletor segmentado entre o painel de período e o painel de resultados, marque **Balanço**, **EAR**, **ENA** ou qualquer combinação entre elas.
 4. Escolha o subsistema e a discretização: **diária**, **mensal** ou **anual**.
 5. Visualize os dados em uma única tabela e baixe um único CSV. As colunas auxiliares de cobertura e status permanecem na tabela, mas não são exportadas.
+6. No **Painel de gráficos**, escolha de forma independente o subsistema, a discretização e o intervalo. A aplicação mostra um gráfico para cada base marcada no seletor superior e oferece download individual em SVG.
+7. Consulte **Arquivos processados** no último painel da página.
 
 A opção horária permanece fora da interface porque EAR e ENA têm periodicidade diária. O Balanço continua sendo lido em sua resolução original e é consolidado internamente para a discretização selecionada.
+
+A configuração dos gráficos é separada da configuração da tabela. Alterar um gráfico não refaz o download e não modifica o CSV: a visualização é recalculada a partir dos dados que já estão na sessão. O arranjo é uma grade 2 × 2, com a configuração na primeira célula e até três gráficos — Balanço, EAR e ENA — nas demais.
 
 ### Grandezas de ENA
 
