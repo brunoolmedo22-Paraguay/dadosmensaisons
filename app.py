@@ -145,6 +145,15 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "average_coverage": "Cobertura média",
         "period_shown": "Período exibido: {start} a {end}.",
         "values_note": "Balanço em MWmed; EAR em MWmês e percentual; ENA em MWmed e % da MLT.",
+        "sin_ena_calculated_label": "SIN · ENA calculada",
+        "sin_ena_calculation_note": (
+            "**ENA do SIN calculada.** A base diária de ENA não fornece uma série própria "
+            "para o SIN. A plataforma só calcula o valor quando SE/CO, Sul, Nordeste e "
+            "Norte estão presentes no mesmo dia. Para cada subsistema: "
+            r"$MLT_i = ENA_i / (\%MLT_i/100)$; depois: "
+            r"$\%MLT_{SIN} = 100\,\sum_i ENA_i / \sum_i MLT_i$. "
+            "Se faltar qualquer um dos quatro subsistemas, o SIN não é calculado."
+        ),
         "adjust_config": "Ajuste a configuração ao lado para visualizar os dados.",
         "chart_empty": "O gráfico será exibido quando houver dados na tabela.",
         "metric_selector": "Grandeza",
@@ -225,6 +234,15 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "average_coverage": "Cobertura promedio",
         "period_shown": "Período mostrado: {start} a {end}.",
         "values_note": "Balance en MWmed; EAR en MWmes y porcentaje; ENA en MWmed y % de la MLT.",
+        "sin_ena_calculated_label": "SIN · ENA calculada",
+        "sin_ena_calculation_note": (
+            "**ENA del SIN calculada.** La base diaria de ENA no suministra una serie propia "
+            "para el SIN. La plataforma solo calcula el valor cuando SE/CO, Sur, Nordeste y "
+            "Norte están presentes el mismo día. Para cada subsistema: "
+            r"$MLT_i = ENA_i / (\%MLT_i/100)$; después: "
+            r"$\%MLT_{SIN} = 100\,\sum_i ENA_i / \sum_i MLT_i$. "
+            "Si falta cualquiera de los cuatro subsistemas, el SIN no se calcula."
+        ),
         "adjust_config": "Ajuste la configuración de la derecha para visualizar los datos.",
         "chart_empty": "El gráfico se mostrará cuando haya datos en la tabla.",
         "metric_selector": "Magnitud",
@@ -748,8 +766,21 @@ def unified_subsystems(
     if "ENA" in selected_sources and result_has_data("ENA", results.get("ENA")):
         for key, label in _ena.available_subsystems(results["ENA"].daily):
             labels.setdefault(key, label)
+        if ena_has_calculated_sin(results):
+            labels["SIN"] = ui_text("sin_ena_calculated_label")
     order = {"SIN": 0, "SE": 1, "S": 2, "NE": 3, "N": 4}
     return sorted(labels.items(), key=lambda item: (order.get(item[0], 99), item[1].casefold()))
+
+
+def ena_has_calculated_sin(results: dict[DataSource, Any]) -> bool:
+    result = results.get("ENA")
+    if not result_has_data("ENA", result):
+        return False
+    daily = result.daily
+    if "__sin_calculated" not in daily.columns:
+        return False
+    calculated = daily["__sin_calculated"].fillna(False).astype(bool)
+    return bool((daily["__subsystem_key"].eq("SIN") & calculated).any())
 
 
 st.markdown(
@@ -956,6 +987,12 @@ with st.container(border=True, key="results_panel"):
                 format_func=lambda value: subsystem_labels[value],
             )
             selected_subsystem_label = subsystem_labels[subsystem_key]
+            if (
+                subsystem_key == "SIN"
+                and "ENA" in usable_sources
+                and ena_has_calculated_sin(results)
+            ):
+                st.info(ui_text("sin_ena_calculation_note"))
 
             balance_data = pd.DataFrame()
             ear_data = pd.DataFrame()

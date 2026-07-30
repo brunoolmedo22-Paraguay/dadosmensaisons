@@ -23,7 +23,7 @@ A opção horária permanece fora da interface porque EAR e ENA têm periodicida
 - ENA armazenável em MWmed;
 - ENA armazenável em percentual da Média de Longo Termo (% MLT).
 
-Quando o arquivo não contém uma linha própria para o SIN, a aplicação soma as grandezas regionais em MWmed e recalcula os percentuais do SIN com base nas MLTs regionais inferidas.
+Quando o arquivo não contém uma linha própria para o SIN, a aplicação só gera a série calculada nos dias em que SE/CO, Sul, Nordeste e Norte estão simultaneamente disponíveis. Para cada subsistema, reconstrói-se a MLT implícita por `MLT_i = ENA_i / (%MLT_i / 100)`; em seguida, calcula-se `%MLT_SIN = 100 × ΣENA_i / ΣMLT_i`. A interface identifica a opção como **SIN · ENA calculada**. Se faltar qualquer um dos quatro subsistemas, não é criado valor do SIN para aquele dia.
 
 ## Execução local
 

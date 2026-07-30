@@ -96,6 +96,7 @@ REPORT_COLUMNS = [
 ]
 
 SUBSYSTEM_ORDER = {"SIN": 0, "SE": 1, "S": 2, "NE": 3, "N": 4}
+REQUIRED_SIN_SUBSYSTEMS = frozenset({"SE", "S", "NE", "N"})
 SUBSYSTEM_FALLBACK_LABELS = {
     "SIN": "SIN",
     "SE": "Sudeste/Centro-Oeste",
@@ -391,6 +392,7 @@ def _load_single_parquet(
     duplicate_count = int(duplicate_mask.sum())
     frame = frame.loc[~duplicate_mask].copy()
     frame["__file_order"] = file_order
+    frame["__sin_calculated"] = False
 
     period_start = frame["ena_data"].min().strftime("%d/%m/%Y")
     period_end = frame["ena_data"].max().strftime("%d/%m/%Y")
@@ -413,53 +415,93 @@ def _load_single_parquet(
             "__subsystem_key",
             "__subsystem_label",
             "__file_order",
+            "__sin_calculated",
         ]
     ], report, warnings
 
 
 def _append_sin_series(data: pd.DataFrame) -> pd.DataFrame:
-    """Cria o SIN pela soma regional e recalcula os percentuais sobre a MLT."""
-    if data.empty or data["__subsystem_key"].eq("SIN").any():
+    """Cria o SIN somente quando os quatro subsistemas estão presentes no dia.
+
+    Os percentuais do SIN não são médias simples. Para cada subsistema, a MLT
+    implícita é reconstruída por ``MLT_i = ENA_i / (%MLT_i / 100)``. Depois,
+    ``%MLT_SIN = 100 * sum(ENA_i) / sum(MLT_i)``.
+    """
+    if data.empty:
         return data
 
-    regional = data.loc[data["__subsystem_key"].ne("SIN")].copy()
+    result = data.copy()
+    if "__sin_calculated" not in result.columns:
+        result["__sin_calculated"] = False
+    result["__sin_calculated"] = result["__sin_calculated"].fillna(False).astype(bool)
+
+    official_sin_dates = set(
+        pd.to_datetime(
+            result.loc[result["__subsystem_key"].eq("SIN"), "ena_data"],
+            errors="coerce",
+        ).dropna()
+    )
+    regional = result.loc[
+        result["__subsystem_key"].isin(REQUIRED_SIN_SUBSYSTEMS)
+    ].copy()
     if regional.empty:
-        return data
+        return result
 
     rows: list[dict[str, object]] = []
     for timestamp, group in regional.groupby("ena_data", sort=True, observed=True):
-        brute_value = group["ena_bruta_regiao_mwmed"].sum(min_count=1)
-        stored_value = group["ena_armazenavel_regiao_mwmed"].sum(min_count=1)
+        if pd.Timestamp(timestamp) in official_sin_dates:
+            continue
+
+        available = set(group["__subsystem_key"].dropna().astype(str))
+        if available != REQUIRED_SIN_SUBSYSTEMS:
+            continue
+
+        complete_group = group.loc[
+            group["__subsystem_key"].isin(REQUIRED_SIN_SUBSYSTEMS)
+        ].copy()
+        brute_value = complete_group["ena_bruta_regiao_mwmed"].sum(min_count=4)
+        stored_value = complete_group["ena_armazenavel_regiao_mwmed"].sum(min_count=4)
+        brute_percent = _aggregate_percent_mlt(
+            complete_group["ena_bruta_regiao_mwmed"],
+            complete_group["ena_bruta_regiao_percentualmlt"],
+        )
+        stored_percent = _aggregate_percent_mlt(
+            complete_group["ena_armazenavel_regiao_mwmed"],
+            complete_group["ena_armazenavel_regiao_percentualmlt"],
+        )
+        if any(
+            pd.isna(value)
+            for value in (brute_value, stored_value, brute_percent, stored_percent)
+        ):
+            continue
+
         rows.append(
             {
                 "id_subsistema": "SIN",
-                "nom_subsistema": "SIN",
+                "nom_subsistema": "SIN calculado",
                 "ena_data": timestamp,
                 "ena_bruta_regiao_mwmed": brute_value,
-                "ena_bruta_regiao_percentualmlt": _aggregate_percent_mlt(
-                    group["ena_bruta_regiao_mwmed"],
-                    group["ena_bruta_regiao_percentualmlt"],
-                ),
+                "ena_bruta_regiao_percentualmlt": brute_percent,
                 "ena_armazenavel_regiao_mwmed": stored_value,
-                "ena_armazenavel_regiao_percentualmlt": _aggregate_percent_mlt(
-                    group["ena_armazenavel_regiao_mwmed"],
-                    group["ena_armazenavel_regiao_percentualmlt"],
-                ),
+                "ena_armazenavel_regiao_percentualmlt": stored_percent,
                 "__subsystem_key": "SIN",
-                "__subsystem_label": "SIN",
-                "__file_order": group["__file_order"].max(),
+                "__subsystem_label": "SIN · ENA calculada",
+                "__file_order": complete_group["__file_order"].max(),
+                "__sin_calculated": True,
             }
         )
 
-    sin = pd.DataFrame(rows, columns=data.columns)
-    return pd.concat([data, sin], ignore_index=True, sort=False)
+    if not rows:
+        return result
+    sin = pd.DataFrame(rows)
+    return pd.concat([result, sin], ignore_index=True, sort=False)
 
 
 def _aggregate_percent_mlt(values: pd.Series, percentages: pd.Series) -> float:
     values_numeric = pd.to_numeric(values, errors="coerce")
     percentages_numeric = pd.to_numeric(percentages, errors="coerce")
     valid = values_numeric.notna() & percentages_numeric.notna() & percentages_numeric.ne(0)
-    if not valid.any():
+    if int(valid.sum()) != len(values_numeric):
         return float("nan")
     inferred_mlt = values_numeric.loc[valid] / (percentages_numeric.loc[valid] / 100)
     denominator = inferred_mlt.sum(min_count=1)
