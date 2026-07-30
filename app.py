@@ -8,7 +8,7 @@ import unicodedata
 from datetime import date, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, Sequence
+from typing import Any, Literal, Sequence
 
 import pandas as pd
 import streamlit as st
@@ -23,6 +23,7 @@ import unified_ons as _unified
 
 
 Granularity = _unified.Granularity
+ChartGranularity = Literal["hourly", "daily", "monthly", "yearly"]
 DataSource = _unified.DataSource
 
 FIRST_AVAILABLE_YEAR = 2000
@@ -36,9 +37,25 @@ HERO_LOGO_DATA_URI = (
 )
 
 GRANULARITIES: tuple[Granularity, ...] = ("daily", "monthly", "yearly")
-GRANULARITY_LABELS: dict[str, dict[Granularity, str]] = {
-    "PT": {"daily": "Diária", "monthly": "Mensal", "yearly": "Anual"},
-    "ES": {"daily": "Diaria", "monthly": "Mensual", "yearly": "Anual"},
+CHART_GRANULARITIES: tuple[ChartGranularity, ...] = (
+    "hourly",
+    "daily",
+    "monthly",
+    "yearly",
+)
+GRANULARITY_LABELS: dict[str, dict[ChartGranularity, str]] = {
+    "PT": {
+        "hourly": "Horária",
+        "daily": "Diária",
+        "monthly": "Mensal",
+        "yearly": "Anual",
+    },
+    "ES": {
+        "hourly": "Horaria",
+        "daily": "Diaria",
+        "monthly": "Mensual",
+        "yearly": "Anual",
+    },
 }
 GRANULARITY_TITLES: dict[str, dict[Granularity, str]] = {
     "PT": {
@@ -56,7 +73,8 @@ CHART_TITLES: dict[str, dict[Granularity, str]] = {
     "PT": {"daily": "Evolução diária", "monthly": "Evolução mensal", "yearly": "Evolução anual"},
     "ES": {"daily": "Evolución diaria", "monthly": "Evolución mensual", "yearly": "Evolución anual"},
 }
-GRANULARITY_SLUGS: dict[Granularity, str] = {
+GRANULARITY_SLUGS: dict[ChartGranularity, str] = {
+    "hourly": "horario",
     "daily": "diario",
     "monthly": "mensal",
     "yearly": "anual",
@@ -146,7 +164,8 @@ UI_TEXT: dict[str, dict[str, str]] = {
         ),
         "charts_config_title": "Configuração dos gráficos",
         "charts_config_copy": "Seleções independentes da tabela e do CSV.",
-        "charts_interval_note": "O intervalo é aplicado antes da agregação diária, mensal ou anual.",
+        "charts_interval_note": "O intervalo é aplicado antes da agregação selecionada.",
+        "charts_hourly_note": "A visualização horária está disponível somente para o Balanço.",
         "chart_metric_selector": "Grandeza do gráfico",
         "chart_no_data": "Não há dados desta base para a configuração escolhida.",
         "chart_download_svg": "Baixar gráfico em SVG",
@@ -253,7 +272,8 @@ UI_TEXT: dict[str, dict[str, str]] = {
         ),
         "charts_config_title": "Configuración de los gráficos",
         "charts_config_copy": "Selecciones independientes de la tabla y del CSV.",
-        "charts_interval_note": "El intervalo se aplica antes de la agregación diaria, mensual o anual.",
+        "charts_interval_note": "El intervalo se aplica antes de la agregación seleccionada.",
+        "charts_hourly_note": "La visualización horaria está disponible únicamente para Balance.",
         "chart_metric_selector": "Magnitud del gráfico",
         "chart_no_data": "No hay datos de esta base para la configuración seleccionada.",
         "chart_download_svg": "Descargar gráfico en SVG",
@@ -593,9 +613,17 @@ st.markdown(
             background: var(--surface);
             border: none !important;
             border-radius: 18px;
-            padding: 1.15rem 1.2rem 1.3rem;
+            padding: .72rem .8rem .82rem;
             box-shadow: 0 8px 24px var(--soft-shadow);
-            margin-top: 1.15rem;
+            margin-top: .75rem;
+        }
+        .st-key-charts_panel h2,
+        .st-key-charts_panel h3 {
+            margin-top: 0 !important;
+            margin-bottom: .18rem !important;
+        }
+        .st-key-charts_panel [data-testid="stCaptionContainer"] {
+            margin-bottom: .18rem;
         }
         .st-key-chart_config_card,
         [class*="st-key-chart_card_"] {
@@ -605,10 +633,14 @@ st.markdown(
                 var(--background-color)
             );
             border: none !important;
-            border-radius: 16px;
-            padding: 1rem 1.05rem;
-            min-height: 31rem;
+            border-radius: 14px;
+            padding: .55rem .62rem .62rem;
+            min-height: 0;
             box-shadow: none;
+        }
+        .st-key-chart_config_card [data-testid="stVerticalBlock"],
+        [class*="st-key-chart_card_"] [data-testid="stVerticalBlock"] {
+            gap: .36rem;
         }
         [class*="st-key-chart_card_"] {
             display: flex;
@@ -618,21 +650,21 @@ st.markdown(
             display: inline-flex;
             width: fit-content;
             align-items: center;
-            padding: .25rem .55rem;
+            padding: .18rem .48rem;
             border-radius: 999px;
             background: color-mix(in srgb, var(--brand) 14%, transparent);
             color: var(--brand-readable);
-            font-size: .7rem;
+            font-size: .66rem;
             font-weight: 760;
-            letter-spacing: .08em;
+            letter-spacing: .07em;
             text-transform: uppercase;
-            margin-bottom: .25rem;
+            margin-bottom: 0;
         }
         .chart-svg-shell {
             overflow: hidden;
             width: 100%;
-            margin-top: .35rem;
-            border-radius: 12px;
+            margin-top: .08rem;
+            border-radius: 10px;
             background: white;
         }
         .chart-svg-shell svg {
@@ -753,11 +785,16 @@ def build_source_chart_summary(
     results: dict[DataSource, Any],
     source: DataSource,
     subsystem_key: str,
-    granularity: Granularity,
+    granularity: ChartGranularity,
     start_date: date,
     end_date: date,
 ) -> tuple[pd.DataFrame, list[str]]:
     """Agrega somente a base solicitada para o painel visual independente."""
+    # EAR e ENA são bases diárias. Na visualização horária, nenhum cartão dessas
+    # fontes é criado e esta proteção evita chamadas com granularidade inválida.
+    if granularity == "hourly" and source != "BALANCO":
+        return pd.DataFrame(), []
+
     filtered = source_data_for_subsystem(results, source, subsystem_key)
     if filtered.empty:
         return pd.DataFrame(), []
@@ -791,7 +828,6 @@ def build_source_chart_summary(
     ]
     return summary, metrics
 
-
 def compact_number(value: float) -> str:
     absolute = abs(value)
     if absolute >= 1_000_000:
@@ -805,7 +841,9 @@ def compact_number(value: float) -> str:
     return f"{value:.2f}"
 
 
-def chart_x_label(value: pd.Timestamp, granularity: Granularity) -> str:
+def chart_x_label(value: pd.Timestamp, granularity: ChartGranularity) -> str:
+    if granularity == "hourly":
+        return value.strftime("%d/%m %Hh")
     if granularity == "daily":
         return value.strftime("%d/%m/%y")
     if granularity == "monthly":
@@ -816,13 +854,13 @@ def chart_x_label(value: pd.Timestamp, granularity: Granularity) -> str:
 def svg_line_chart(
     summary: pd.DataFrame,
     metric: str,
-    granularity: Granularity,
+    granularity: ChartGranularity,
     title: str,
     period_label: str,
 ) -> bytes:
     """Gera um SVG autônomo, sem dependências gráficas no servidor."""
-    width, height = 920, 470
-    left, right, top, bottom = 92, 32, 72, 76
+    width, height = 920, 330
+    left, right, top, bottom = 82, 28, 62, 60
     plot_width = width - left - right
     plot_height = height - top - bottom
 
@@ -855,9 +893,9 @@ def svg_line_chart(
     def y_position(value: float) -> float:
         return top + (y_max - value) * plot_height / (y_max - y_min)
 
-    y_tick_count = 5
+    y_tick_count = 4
     y_ticks = [y_min + i * (y_max - y_min) / (y_tick_count - 1) for i in range(y_tick_count)]
-    max_x_ticks = 6
+    max_x_ticks = 5
     if len(values) <= max_x_ticks:
         x_indices = list(range(len(values)))
     else:
@@ -906,7 +944,7 @@ def svg_line_chart(
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
         f'viewBox="0 0 {width} {height}" role="img" aria-label="{html.escape(title)}">'
         '<rect width="100%" height="100%" rx="16" fill="#ffffff" />'
-        f'<text x="{left}" y="32" font-family="Arial, sans-serif" font-size="21" '
+        f'<text x="{left}" y="32" font-family="Arial, sans-serif" font-size="18" '
         f'font-weight="700" fill="#17383b">{html.escape(title)}</text>'
         f'<text x="{left}" y="55" font-family="Arial, sans-serif" font-size="13" '
         f'fill="#637477">{html.escape(period_label)}</text>'
@@ -916,7 +954,7 @@ def svg_line_chart(
         f'<line x1="{left}" y1="{top+plot_height}" x2="{width-right}" '
         f'y2="{top+plot_height}" stroke="#526164" stroke-width="1.2" />'
         f'{"".join(x_nodes)}'
-        f'<path d="{path}" fill="none" stroke="#006b70" stroke-width="3.2" '
+        f'<path d="{path}" fill="none" stroke="#006b70" stroke-width="2.8" '
         'stroke-linejoin="round" stroke-linecap="round" />'
         f'{point_nodes}'
         f'<text x="18" y="{top + plot_height/2}" '
@@ -932,7 +970,7 @@ def render_chart_card(
     results: dict[DataSource, Any],
     source: DataSource,
     subsystem_key: str,
-    granularity: Granularity,
+    granularity: ChartGranularity,
     start_date: date,
     end_date: date,
     selected_subsystem_label: str,
@@ -952,24 +990,22 @@ def render_chart_card(
             end_date=end_date,
         )
         if summary.empty or not metrics:
-            st.subheader(source_label)
             st.info(ui_text("chart_no_data"))
             return
 
         metric_key = f"chart_metric_{source.lower()}"
         if st.session_state.get(metric_key) not in metrics:
             st.session_state.pop(metric_key, None)
-        metric = st.selectbox(
-            ui_text("chart_metric_selector"),
-            options=metrics,
-            key=metric_key,
-        )
-        st.subheader(
-            ui_text("chart_source_title").format(
-                source=source_label,
-                metric=metric,
+
+        # O seletor e o download dividem a mesma linha para reduzir a altura do cartão.
+        control_columns = st.columns([1.42, 1], gap="small", vertical_alignment="bottom")
+        with control_columns[0]:
+            metric = st.selectbox(
+                ui_text("chart_metric_selector"),
+                options=metrics,
+                key=metric_key,
             )
-        )
+
         period_label = (
             f"{selected_subsystem_label} · "
             f"{GRANULARITY_LABELS[language][granularity]} · "
@@ -982,24 +1018,25 @@ def render_chart_card(
             title=f"{source_label} — {metric}",
             period_label=period_label,
         )
-        st.markdown(
-            f'<div class="chart-svg-shell">{svg_bytes.decode("utf-8")}</div>',
-            unsafe_allow_html=True,
-        )
         file_name = (
             f"grafico_{source.lower()}_{subsystem_slug(subsystem_key)}_"
             f"{GRANULARITY_SLUGS[granularity]}_{start_date:%Y%m%d}-"
             f"{end_date:%Y%m%d}_{subsystem_slug(metric)}.svg"
         )
-        st.download_button(
-            ui_text("chart_download_svg"),
-            data=svg_bytes,
-            file_name=file_name,
-            mime="image/svg+xml",
-            width="stretch",
-            key=f"download_svg_{source.lower()}",
-        )
+        with control_columns[1]:
+            st.download_button(
+                ui_text("chart_download_svg"),
+                data=svg_bytes,
+                file_name=file_name,
+                mime="image/svg+xml",
+                width="stretch",
+                key=f"download_svg_{source.lower()}",
+            )
 
+        st.markdown(
+            f'<div class="chart-svg-shell">{svg_bytes.decode("utf-8")}</div>',
+            unsafe_allow_html=True,
+        )
 
 def render_empty_state() -> None:
     st.markdown(
@@ -1585,13 +1622,14 @@ with st.container(border=True, key="charts_panel"):
     st.subheader(ui_text("charts_title"))
     st.caption(ui_text("charts_copy"))
 
-    first_chart_row = st.columns(2, gap="large")
+    first_chart_row = st.columns(2, gap="small")
     chart_ready = False
     chart_start = None
     chart_end = None
-    chart_granularity: Granularity = "monthly"
+    chart_granularity: ChartGranularity = "monthly"
     chart_subsystem_key = chart_subsystem_keys[0]
     chart_subsystem_label = chart_subsystem_labels[chart_subsystem_key]
+    chart_sources: list[DataSource] = []
 
     with first_chart_row[0]:
         with st.container(border=True, key="chart_config_card"):
@@ -1599,21 +1637,36 @@ with st.container(border=True, key="charts_panel"):
                 f'<div class="panel-kicker">{ui_text("charts_config_title")}</div>',
                 unsafe_allow_html=True,
             )
-            st.caption(ui_text("charts_config_copy"))
-            chart_subsystem_key = st.selectbox(
-                ui_text("subsystem_selector"),
-                options=chart_subsystem_keys,
-                index=chart_subsystem_keys.index("SIN") if "SIN" in chart_subsystem_keys else 0,
-                key="chart_subsystem_value",
-                format_func=lambda value: chart_subsystem_labels[value],
-            )
+            config_columns = st.columns(2, gap="small")
+            with config_columns[0]:
+                chart_subsystem_key = st.selectbox(
+                    ui_text("subsystem_selector"),
+                    options=chart_subsystem_keys,
+                    index=(
+                        chart_subsystem_keys.index("SIN")
+                        if "SIN" in chart_subsystem_keys
+                        else 0
+                    ),
+                    key="chart_subsystem_value",
+                    format_func=lambda value: chart_subsystem_labels[value],
+                )
+            with config_columns[1]:
+                chart_granularity = st.selectbox(
+                    ui_text("granularity_selector"),
+                    options=CHART_GRANULARITIES,
+                    index=2,
+                    key="chart_granularity_value",
+                    format_func=lambda value: GRANULARITY_LABELS[language][value],
+                )
             chart_subsystem_label = chart_subsystem_labels[chart_subsystem_key]
-            chart_granularity = st.selectbox(
-                ui_text("granularity_selector"),
-                options=GRANULARITIES,
-                index=1,
-                key="chart_granularity_value",
-                format_func=lambda value: GRANULARITY_LABELS[language][value],
+
+            # Na discretização horária, somente o Balanço possui dados compatíveis.
+            chart_sources = (
+                ["BALANCO"]
+                if chart_granularity == "hourly" and "BALANCO" in usable_sources
+                else list(usable_sources)
+                if chart_granularity != "hourly"
+                else []
             )
 
             chart_balance_data = (
@@ -1631,10 +1684,11 @@ with st.container(border=True, key="charts_panel"):
                 if "ENA" in usable_sources
                 else pd.DataFrame()
             )
+            bounds_sources = chart_sources if chart_sources else list(usable_sources)
             chart_bounds = _unified.source_date_bounds(
                 chart_balance_data,
                 chart_ear_data,
-                usable_sources,
+                bounds_sources,
                 ena_data=chart_ena_data,
             )
 
@@ -1642,7 +1696,12 @@ with st.container(border=True, key="charts_panel"):
                 st.warning(ui_text("chart_no_data"))
             else:
                 chart_data_min, chart_data_max = chart_bounds
-                if chart_granularity == "daily":
+                if chart_granularity == "hourly":
+                    suggested_chart_start = max(
+                        chart_data_min,
+                        chart_data_max - timedelta(days=7),
+                    )
+                elif chart_granularity == "daily":
                     suggested_chart_start = max(
                         chart_data_min,
                         chart_data_max - timedelta(days=90),
@@ -1679,23 +1738,23 @@ with st.container(border=True, key="charts_panel"):
 
                 if chart_start > chart_end:
                     st.error(ui_text("invalid_dates"))
-                    st.caption(ui_text("charts_need_valid_dates"))
                 else:
                     chart_ready = True
-                    st.caption(ui_text("charts_interval_note"))
 
-            if (
+            if chart_granularity == "hourly":
+                st.caption(ui_text("charts_hourly_note"))
+            elif (
                 chart_subsystem_key == "SIN"
                 and "ENA" in usable_sources
                 and ena_has_calculated_sin(results)
             ):
                 st.info(ui_text("sin_ena_calculation_note"))
 
-    if usable_sources and chart_ready and chart_start and chart_end:
+    if chart_sources and chart_ready and chart_start and chart_end:
         with first_chart_row[1]:
             render_chart_card(
                 results=results,
-                source=usable_sources[0],
+                source=chart_sources[0],
                 subsystem_key=chart_subsystem_key,
                 granularity=chart_granularity,
                 start_date=chart_start,
@@ -1703,9 +1762,9 @@ with st.container(border=True, key="charts_panel"):
                 selected_subsystem_label=chart_subsystem_label,
             )
 
-        remaining_chart_sources = usable_sources[1:]
+        remaining_chart_sources = chart_sources[1:]
         if remaining_chart_sources:
-            second_chart_row = st.columns(2, gap="large")
+            second_chart_row = st.columns(2, gap="small")
             for chart_column, source in zip(second_chart_row, remaining_chart_sources):
                 with chart_column:
                     render_chart_card(

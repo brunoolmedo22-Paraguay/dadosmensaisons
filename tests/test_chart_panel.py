@@ -23,11 +23,20 @@ class ChartPanelStructureTests(unittest.TestCase):
         self.assertIn("chart_granularity_value", self.source)
         self.assertIn('mime="image/svg+xml"', self.source)
 
-    def test_grid_has_configuration_plus_three_source_slots(self) -> None:
-        self.assertIn("first_chart_row = st.columns(2", self.source)
-        self.assertIn("second_chart_row = st.columns(2", self.source)
-        self.assertIn("source=usable_sources[0]", self.source)
-        self.assertIn("remaining_chart_sources = usable_sources[1:]", self.source)
+    def test_compact_grid_and_inline_controls(self) -> None:
+        self.assertIn('first_chart_row = st.columns(2, gap="small")', self.source)
+        self.assertIn('second_chart_row = st.columns(2, gap="small")', self.source)
+        self.assertIn('control_columns = st.columns([1.42, 1]', self.source)
+        self.assertIn('config_columns = st.columns(2, gap="small")', self.source)
+        self.assertIn('chart_date_columns = st.columns(2, gap="small")', self.source)
+        self.assertNotIn("min-height: 31rem", self.source)
+
+    def test_hourly_is_chart_only_and_filters_non_hourly_sources(self) -> None:
+        self.assertIn('CHART_GRANULARITIES', self.source)
+        self.assertIn('"hourly",', self.source)
+        self.assertIn('if granularity == "hourly" and source != "BALANCO"', self.source)
+        self.assertIn('["BALANCO"]', self.source)
+        self.assertIn('chart_granularity == "hourly"', self.source)
 
 
 class SvgChartTests(unittest.TestCase):
@@ -47,6 +56,7 @@ class SvgChartTests(unittest.TestCase):
             "math": math,
             "html": html,
             "Granularity": str,
+            "ChartGranularity": str,
         }
         exec(compile(module, str(APP_PATH), "exec"), namespace)
         cls.svg_line_chart = staticmethod(namespace["svg_line_chart"])
@@ -72,6 +82,26 @@ class SvgChartTests(unittest.TestCase):
         self.assertIn("#006b70", svg)
         self.assertIn("03/2026", svg)
         self.assertIn("ENA bruta (MWmed)", svg)
+        self.assertIn('height="330"', svg)
+
+    def test_hourly_svg_uses_hour_labels(self) -> None:
+        frame = pd.DataFrame(
+            {
+                "__period_start": pd.to_datetime(
+                    ["2026-01-01 00:00", "2026-01-01 01:00", "2026-01-01 02:00"]
+                ),
+                "Carga (MWmed)": [100.0, 110.0, 105.0],
+            }
+        )
+        svg = self.svg_line_chart(
+            frame,
+            "Carga (MWmed)",
+            "hourly",
+            "Balanço — Carga (MWmed)",
+            "SIN · Horária · 01/01/2026 a 01/01/2026",
+        ).decode("utf-8")
+        self.assertIn("01/01 00h", svg)
+        self.assertIn("01/01 02h", svg)
 
 
 if __name__ == "__main__":
