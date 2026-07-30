@@ -20,6 +20,7 @@ import ena_download as _ena_download
 import ena_processing as _ena
 import ons_download as _balance_download
 import unified_ons as _unified
+from parallel_ons import ProgressEvent, SourceSpec, run_parallel_sources
 
 
 Granularity = _unified.Granularity
@@ -98,7 +99,7 @@ UI_TEXT: dict[str, dict[str, str]] = {
             "Defina o período acima e clique em <strong>Baixar dados do ONS</strong> "
             "para iniciar a análise."
         ),
-        "progress_catalog": "Consultando as bases oficiais do ONS...",
+        "progress_catalog": "Consultando as três bases oficiais do ONS em paralelo...",
         "progress_file": "{source}: arquivo de {year} concluído ({completed}/{total})...",
         "progress_validate": "{source}: validando e consolidando os dados...",
         "progress_done": "Processamento concluído.",
@@ -115,7 +116,7 @@ UI_TEXT: dict[str, dict[str, str]] = {
             "<strong>{start_year}–{end_year}</strong>."
         ),
         "step_1_title": "Localizar as três bases",
-        "step_1_copy": "Consulta os catálogos oficiais de Balanço Energético, EAR e ENA.",
+        "step_1_copy": "Consulta em paralelo os catálogos oficiais de Balanço Energético, EAR e ENA.",
         "step_2_title": "Baixar e validar",
         "step_2_copy": "Salva temporariamente os arquivos anuais; para ENA, usa CSV quando o Parquet não existe.",
         "step_3_title": "Consolidar por período",
@@ -206,7 +207,7 @@ UI_TEXT: dict[str, dict[str, str]] = {
             "Defina el período anterior y pulse <strong>Descargar datos del ONS</strong> "
             "para iniciar el análisis."
         ),
-        "progress_catalog": "Consultando las bases oficiales del ONS...",
+        "progress_catalog": "Consultando las tres bases oficiales del ONS en paralelo...",
         "progress_file": "{source}: archivo de {year} completado ({completed}/{total})...",
         "progress_validate": "{source}: validando y consolidando los datos...",
         "progress_done": "Procesamiento finalizado.",
@@ -223,7 +224,7 @@ UI_TEXT: dict[str, dict[str, str]] = {
             "<strong>{start_year}–{end_year}</strong>."
         ),
         "step_1_title": "Localizar las tres bases",
-        "step_1_copy": "Consulta los catálogos oficiales de Balance Energético, EAR y ENA.",
+        "step_1_copy": "Consulta en paralelo los catálogos oficiales de Balance Energético, EAR y ENA.",
         "step_2_title": "Descargar y validar",
         "step_2_copy": "Guarda temporalmente los archivos anuales; para ENA, usa CSV cuando no existe Parquet.",
         "step_3_title": "Consolidar por período",
@@ -1061,81 +1062,81 @@ def obtain_ons_data(
     source_errors: list[str] = []
 
     source_specs = (
-        (
-            "BALANCO",
-            SOURCE_LABELS[language]["BALANCO"],
-            _balance_download.download_parquet_years,
-            _balanco.process_parquet_files,
-            "balanco",
+        SourceSpec(
+            key="BALANCO",
+            label=SOURCE_LABELS[language]["BALANCO"],
+            downloader=_balance_download.download_parquet_years,
+            processor=_balanco.process_parquet_files,
+            folder_name="balanco",
         ),
-        (
-            "EAR",
-            SOURCE_LABELS[language]["EAR"],
-            _ear_download.download_parquet_years,
-            _ear.process_parquet_files,
-            "ear",
+        SourceSpec(
+            key="EAR",
+            label=SOURCE_LABELS[language]["EAR"],
+            downloader=_ear_download.download_parquet_years,
+            processor=_ear.process_parquet_files,
+            folder_name="ear",
         ),
-        (
-            "ENA",
-            SOURCE_LABELS[language]["ENA"],
-            _ena_download.download_ena_years,
-            _ena.process_data_files,
-            "ena",
+        SourceSpec(
+            key="ENA",
+            label=SOURCE_LABELS[language]["ENA"],
+            downloader=_ena_download.download_ena_years,
+            processor=_ena.process_data_files,
+            folder_name="ena",
         ),
     )
     total_steps = len(years) * len(source_specs)
+    completed_by_source = {spec.key: 0 for spec in source_specs}
+    validation_started: set[str] = set()
+
+    def update_progress(event: ProgressEvent) -> None:
+        if event.phase == "download":
+            completed_by_source[event.source_key] = max(
+                completed_by_source[event.source_key],
+                event.completed,
+            )
+            completed = sum(completed_by_source.values())
+            percentage = 5 + int(75 * completed / max(total_steps, 1))
+            progress.progress(
+                min(80, percentage),
+                text=ui_text("progress_file").format(
+                    source=event.source_label,
+                    year=event.year,
+                    completed=event.completed,
+                    total=event.total,
+                ),
+            )
+        elif event.phase == "validate":
+            validation_started.add(event.source_key)
+            percentage = 80 + int(15 * len(validation_started) / len(source_specs))
+            progress.progress(
+                min(95, percentage),
+                text=ui_text("progress_validate").format(
+                    source=event.source_label,
+                ),
+            )
 
     try:
         with TemporaryDirectory(prefix="ons_unificado_") as temporary_directory:
-            temporary_root = Path(temporary_directory)
-            for source_index, (
-                source_key,
-                source_label,
-                downloader,
-                processor,
-                folder_name,
-            ) in enumerate(source_specs):
-                def update_progress(
-                    completed: int,
-                    total: int,
-                    year: int,
-                    *,
-                    offset: int = source_index * len(years),
-                    label: str = source_label,
-                ) -> None:
-                    overall_completed = offset + completed
-                    percentage = 5 + int(75 * overall_completed / max(total_steps, 1))
-                    progress.progress(
-                        percentage,
-                        text=ui_text("progress_file").format(
-                            source=label,
-                            year=year,
-                            completed=completed,
-                            total=total,
-                        ),
-                    )
+            outcomes = run_parallel_sources(
+                specs=source_specs,
+                years=years,
+                temporary_root=Path(temporary_directory),
+                event_callback=update_progress,
+                max_workers=3,
+            )
 
-                try:
-                    batch = downloader(
-                        years=years,
-                        destination=temporary_root / folder_name,
-                        progress_callback=update_progress,
-                    )
-                    progress.progress(
-                        82 + source_index * 7,
-                        text=ui_text("progress_validate").format(source=source_label),
-                    )
-                    result = processor(batch.files)
-                    result.errors = [*batch.errors, *result.errors]
-                    results[source_key] = result
-                    total_bytes += batch.total_bytes
-                except Exception as exc:
+            for outcome in outcomes:
+                if outcome.error is not None:
                     source_errors.append(
                         ui_text("unexpected_error").format(
-                            source=source_label,
-                            error=exc,
+                            source=outcome.source_label,
+                            error=outcome.error,
                         )
                     )
+                    continue
+                results[outcome.source_key] = outcome.result
+                total_bytes += outcome.total_bytes
+
             progress.progress(100, text=ui_text("progress_done"))
             return results, total_bytes, source_errors
     finally:
