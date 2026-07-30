@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import importlib
 import re
 import unicodedata
 from datetime import date, timedelta
@@ -20,14 +19,6 @@ import ena_processing as _ena
 import ons_download as _balance_download
 import unified_ons as _unified
 
-# Evita módulos auxiliares antigos na memória durante um redeploy do Streamlit.
-_balanco = importlib.reload(_balanco)
-_ear_download = importlib.reload(_ear_download)
-_ear = importlib.reload(_ear)
-_ena_download = importlib.reload(_ena_download)
-_ena = importlib.reload(_ena)
-_balance_download = importlib.reload(_balance_download)
-_unified = importlib.reload(_unified)
 
 Granularity = _unified.Granularity
 DataSource = _unified.DataSource
