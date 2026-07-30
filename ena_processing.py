@@ -419,9 +419,14 @@ def _normalize_loaded_frame(
         raise WorkbookError("colunas obrigatórias ausentes: " + ", ".join(missing))
 
     warnings: list[str] = []
+    # Os CSVs históricos do ONS usam ISO (AAAA-MM-DD), enquanto arquivos
+    # alternativos/testes podem usar DD/MM/AAAA. ``format="mixed"`` evita que
+    # ``dayfirst=True`` interprete uma data ISO como ano-dia-mês e descarte
+    # todos os dias posteriores ao dia 12.
     frame["ena_data"] = pd.to_datetime(
         frame["ena_data"],
         errors="coerce",
+        format="mixed",
         dayfirst=True,
     ).dt.floor("D")
     invalid_dates = int(frame["ena_data"].isna().sum())

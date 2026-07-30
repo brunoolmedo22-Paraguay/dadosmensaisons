@@ -193,3 +193,43 @@ def test_process_data_files_accepts_mixed_csv_and_parquet(monkeypatch, tmp_path:
     assert set(result.file_report["Situação"]) == {
         "Processado (CSV)", "Processado (Parquet)"
     }
+
+
+def test_processes_official_historical_csv_with_iso_dates(tmp_path: Path) -> None:
+    csv_path = tmp_path / "ENA_DIARIO_SUBSISTEMA_2000.csv"
+    rows = [
+        "id_subsistema;nom_subsistema;ena_data;ena_bruta_regiao_mwmed;ena_bruta_regiao_percentualmlt;ena_armazenavel_regiao_mwmed;ena_armazenavel_regiao_percentualmlt",
+        "N;NORTE;2000-01-13;10392.56152344;126.63939667;10381.55273438;126.50520325",
+        "NE;NORDESTE;2000-01-13;10174.40234375;78.59410095;9990.51074219;77.17359924",
+        "S;SUL;2000-01-13;1772.41503906;43.59740067;1772.41503906;43.59740067",
+        "SE;SUDESTE;2000-01-13;27179.79101563;60.57680130;27097.95703125;60.39440155",
+    ]
+    csv_path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    result = ep.process_data_files([(csv_path.name, csv_path)])
+
+    assert not result.errors
+    assert not result.warnings
+    regional = result.daily.loc[result.daily["__subsystem_key"].ne("SIN")]
+    assert len(regional) == 4
+    assert regional["ena_data"].eq(pd.Timestamp("2000-01-13")).all()
+    assert result.daily["__subsystem_key"].eq("SIN").sum() == 1
+
+
+def test_mixed_date_parser_accepts_iso_and_brazilian_dates(tmp_path: Path) -> None:
+    csv_path = tmp_path / "ENA_DIARIO_SUBSISTEMA_2020.csv"
+    rows = [
+        "id_subsistema;nom_subsistema;ena_data;ena_bruta_regiao_mwmed;ena_bruta_regiao_percentualmlt;ena_armazenavel_regiao_mwmed;ena_armazenavel_regiao_percentualmlt",
+        "SE;SUDESTE;2020-01-13;100;50;80;40",
+        "SE;SUDESTE;14/01/2020;110;55;88;44",
+    ]
+    csv_path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    result = ep.process_data_files([(csv_path.name, csv_path)])
+
+    assert not result.errors
+    assert not result.warnings
+    assert set(result.daily["ena_data"]) == {
+        pd.Timestamp("2020-01-13"),
+        pd.Timestamp("2020-01-14"),
+    }
