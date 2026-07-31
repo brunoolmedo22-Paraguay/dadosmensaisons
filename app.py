@@ -174,6 +174,7 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "chart_metric_selector": "Grandeza do gráfico",
         "chart_no_data": "Não há dados desta base para a configuração escolhida.",
         "chart_download_svg": "Baixar gráfico em SVG",
+        "chart_download_panel_svg": "Baixar painel completo em SVG",
         "chart_period": "{start} a {end}",
         "chart_source_title": "{source} · {metric}",
         "chart_axis_value": "Valor",
@@ -287,6 +288,7 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "chart_metric_selector": "Magnitud del gráfico",
         "chart_no_data": "No hay datos de esta base para la configuración seleccionada.",
         "chart_download_svg": "Descargar gráfico en SVG",
+        "chart_download_panel_svg": "Descargar panel completo en SVG",
         "chart_period": "{start} a {end}",
         "chart_source_title": "{source} · {metric}",
         "chart_axis_value": "Valor",
@@ -972,26 +974,147 @@ def chart_x_label(value: pd.Timestamp, granularity: ChartGranularity) -> str:
     return value.strftime("%Y")
 
 
+def svg_time_ticks(
+    start_timestamp: pd.Timestamp,
+    end_timestamp: pd.Timestamp,
+    granularity: ChartGranularity,
+) -> list[tuple[pd.Timestamp, str]]:
+    """Retorna marcações temporais detalhadas e legíveis para exportações SVG."""
+    start_timestamp = pd.Timestamp(start_timestamp)
+    end_timestamp = pd.Timestamp(end_timestamp)
+    if end_timestamp <= start_timestamp:
+        end_timestamp = start_timestamp + pd.Timedelta(days=1)
+
+    span_days = max((end_timestamp - start_timestamp).total_seconds() / 86_400, 1)
+    yearly_axis = False
+    if granularity == "hourly":
+        if span_days <= 2:
+            tick_start = start_timestamp.floor("6h")
+            ticks = pd.date_range(tick_start, end_timestamp, freq="6h")
+            formatter = lambda value: value.strftime("%d/%m %Hh")
+        elif span_days <= 14:
+            ticks = pd.date_range(start_timestamp.normalize(), end_timestamp, freq="D")
+            formatter = lambda value: value.strftime("%d/%m")
+        elif span_days <= 90:
+            ticks = pd.date_range(start_timestamp.normalize(), end_timestamp, freq="7D")
+            formatter = lambda value: value.strftime("%d/%m/%y")
+        else:
+            first_month = start_timestamp.to_period("M").start_time
+            ticks = pd.date_range(first_month, end_timestamp, freq="MS")
+            formatter = lambda value: value.strftime("%m/%Y")
+    elif granularity == "daily":
+        if span_days <= 120:
+            ticks = pd.date_range(start_timestamp.normalize(), end_timestamp, freq="14D")
+            formatter = lambda value: value.strftime("%d/%m/%y")
+        elif span_days <= 550:
+            first_month = start_timestamp.to_period("M").start_time
+            ticks = pd.date_range(first_month, end_timestamp, freq="MS")
+            formatter = lambda value: value.strftime("%m/%y")
+        elif span_days <= 1_500:
+            first_quarter = start_timestamp.to_period("Q").start_time
+            ticks = pd.date_range(first_quarter, end_timestamp, freq="QS")
+            formatter = lambda value: value.strftime("%m/%Y")
+        else:
+            yearly_axis = True
+            ticks = pd.date_range(
+                pd.Timestamp(year=start_timestamp.year, month=1, day=1),
+                pd.Timestamp(year=end_timestamp.year, month=1, day=1),
+                freq="YS",
+            )
+            formatter = lambda value: value.strftime("%Y")
+    elif granularity == "monthly":
+        month_count = max(
+            (end_timestamp.year - start_timestamp.year) * 12
+            + end_timestamp.month
+            - start_timestamp.month
+            + 1,
+            1,
+        )
+        if month_count <= 24:
+            first_month = start_timestamp.to_period("M").start_time
+            ticks = pd.date_range(first_month, end_timestamp, freq="MS")
+            formatter = lambda value: value.strftime("%m/%y")
+        elif month_count <= 60:
+            first_quarter = start_timestamp.to_period("Q").start_time
+            ticks = pd.date_range(first_quarter, end_timestamp, freq="QS")
+            formatter = lambda value: value.strftime("%m/%Y")
+        else:
+            yearly_axis = True
+            ticks = pd.date_range(
+                pd.Timestamp(year=start_timestamp.year, month=1, day=1),
+                pd.Timestamp(year=end_timestamp.year, month=1, day=1),
+                freq="YS",
+            )
+            formatter = lambda value: value.strftime("%Y")
+    else:
+        yearly_axis = True
+        ticks = pd.date_range(
+            pd.Timestamp(year=start_timestamp.year, month=1, day=1),
+            pd.Timestamp(year=end_timestamp.year, month=1, day=1),
+            freq="YS",
+        )
+        formatter = lambda value: value.strftime("%Y")
+
+    valid_ticks = [
+        pd.Timestamp(value)
+        for value in ticks
+        if start_timestamp <= pd.Timestamp(value) <= end_timestamp
+    ]
+    if yearly_axis:
+        if not any(value.year == start_timestamp.year for value in valid_ticks):
+            valid_ticks.insert(0, start_timestamp)
+        if not any(value.year == end_timestamp.year for value in valid_ticks):
+            valid_ticks.append(end_timestamp)
+    if not valid_ticks:
+        valid_ticks = [start_timestamp, end_timestamp]
+    elif len(valid_ticks) == 1 and end_timestamp > start_timestamp:
+        valid_ticks.append(end_timestamp)
+    return [(value, formatter(value)) for value in valid_ticks]
+
+
+def svg_canvas_width(tick_count: int) -> int:
+    """Reserva largura suficiente para mostrar todos os anos sem pular rótulos."""
+    return int(max(1_100, min(2_400, 190 + max(tick_count, 1) * 55)))
+
+
+def prepare_svg_series(summary: pd.DataFrame, metric: str) -> pd.DataFrame:
+    frame = summary[["__period_start", metric]].copy()
+    frame["__period_start"] = pd.to_datetime(frame["__period_start"], errors="coerce")
+    frame[metric] = pd.to_numeric(frame[metric], errors="coerce")
+    frame = frame[
+        frame[metric].map(
+            lambda value: math.isfinite(float(value)) if pd.notna(value) else False
+        )
+    ]
+    return frame.dropna().sort_values("__period_start", kind="stable")
+
+
 def svg_line_chart(
     summary: pd.DataFrame,
     metric: str,
     granularity: ChartGranularity,
     title: str,
     period_label: str,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> bytes:
-    """Gera um SVG autônomo, sem dependências gráficas no servidor."""
-    width, height = 920, 330
-    left, right, top, bottom = 82, 28, 62, 60
-    plot_width = width - left - right
-    plot_height = height - top - bottom
-
-    frame = summary[["__period_start", metric]].copy()
-    frame["__period_start"] = pd.to_datetime(frame["__period_start"], errors="coerce")
-    frame[metric] = pd.to_numeric(frame[metric], errors="coerce")
-    frame = frame[frame[metric].map(lambda value: math.isfinite(float(value)) if pd.notna(value) else False)]
-    frame = frame.dropna().sort_values("__period_start", kind="stable")
+    """Gera SVG individual com escala temporal real e grade detalhada."""
+    frame = prepare_svg_series(summary, metric)
     if frame.empty:
         raise ValueError("Série vazia para o gráfico SVG.")
+
+    data_start = pd.Timestamp(frame["__period_start"].min())
+    data_end = pd.Timestamp(frame["__period_start"].max())
+    axis_start = pd.Timestamp(start_date) if start_date is not None else data_start
+    axis_end = pd.Timestamp(end_date) if end_date is not None else data_end
+    if axis_end <= axis_start:
+        axis_end = axis_start + pd.Timedelta(days=1)
+
+    time_ticks = svg_time_ticks(axis_start, axis_end, granularity)
+    width, height = svg_canvas_width(len(time_ticks)), 360
+    left, right, top, bottom = 92, 34, 68, 84
+    plot_width = width - left - right
+    plot_height = height - top - bottom
 
     values = frame[metric].astype(float).tolist()
     dates = frame["__period_start"].tolist()
@@ -1006,36 +1129,26 @@ def svg_line_chart(
         y_min -= padding
         y_max += padding
 
-    def x_position(index: int) -> float:
-        if len(values) == 1:
-            return left + plot_width / 2
-        return left + index * plot_width / (len(values) - 1)
+    axis_seconds = max((axis_end - axis_start).total_seconds(), 1.0)
+
+    def x_position(value: pd.Timestamp) -> float:
+        elapsed = (pd.Timestamp(value) - axis_start).total_seconds()
+        return left + max(0.0, min(1.0, elapsed / axis_seconds)) * plot_width
 
     def y_position(value: float) -> float:
         return top + (y_max - value) * plot_height / (y_max - y_min)
 
     y_tick_count = 4
-    y_ticks = [y_min + i * (y_max - y_min) / (y_tick_count - 1) for i in range(y_tick_count)]
-    max_x_ticks = 5
-    if len(values) <= max_x_ticks:
-        x_indices = list(range(len(values)))
-    else:
-        x_indices = sorted(
-            set(round(i * (len(values) - 1) / (max_x_ticks - 1)) for i in range(max_x_ticks))
-        )
-
-    path = " ".join(
-        f"{'M' if index == 0 else 'L'} {x_position(index):.2f} {y_position(value):.2f}"
-        for index, value in enumerate(values)
+    y_ticks = [
+        y_min + index * (y_max - y_min) / (y_tick_count - 1)
+        for index in range(y_tick_count)
+    ]
+    path_data = " ".join(
+        f"{'M' if index == 0 else 'L'} {x_position(date_value):.2f} {y_position(value):.2f}"
+        for index, (date_value, value) in enumerate(zip(dates, values))
     )
-    point_nodes = ""
-    if len(values) <= 80:
-        point_nodes = "".join(
-            f'<circle cx="{x_position(index):.2f}" cy="{y_position(value):.2f}" r="3.2" fill="#006b70" />'
-            for index, value in enumerate(values)
-        )
 
-    grid_nodes = []
+    grid_nodes: list[str] = []
     for tick in y_ticks:
         y = y_position(tick)
         grid_nodes.append(
@@ -1044,21 +1157,39 @@ def svg_line_chart(
         )
         grid_nodes.append(
             f'<text x="{left-12}" y="{y+5:.2f}" text-anchor="end" '
-            'font-size="13" fill="#526164">'
+            'font-family="Arial, sans-serif" font-size="13" fill="#526164">'
             f'{html.escape(compact_number(tick))}</text>'
         )
 
-    x_nodes = []
-    for index in x_indices:
-        x = x_position(index)
+    rotate_labels = len(time_ticks) > 16
+    x_nodes: list[str] = []
+    for tick_value, tick_label in time_ticks:
+        x = x_position(tick_value)
         x_nodes.append(
-            f'<line x1="{x:.2f}" y1="{top+plot_height}" x2="{x:.2f}" '
-            f'y2="{top+plot_height+6}" stroke="#526164" stroke-width="1" />'
+            f'<line x1="{x:.2f}" y1="{top}" x2="{x:.2f}" y2="{top+plot_height}" '
+            'stroke="#eef3f4" stroke-width="1" />'
         )
-        x_nodes.append(
-            f'<text x="{x:.2f}" y="{top+plot_height+27}" text-anchor="middle" '
-            'font-size="12" fill="#526164">'
-            f'{html.escape(chart_x_label(pd.Timestamp(dates[index]), granularity))}</text>'
+        label_y = top + plot_height + 24
+        if rotate_labels:
+            x_nodes.append(
+                f'<text x="{x:.2f}" y="{label_y:.2f}" text-anchor="end" '
+                f'transform="rotate(-45 {x:.2f} {label_y:.2f})" '
+                'font-family="Arial, sans-serif" font-size="12" fill="#526164">'
+                f'{html.escape(tick_label)}</text>'
+            )
+        else:
+            x_nodes.append(
+                f'<text x="{x:.2f}" y="{label_y:.2f}" text-anchor="middle" '
+                'font-family="Arial, sans-serif" font-size="12" fill="#526164">'
+                f'{html.escape(tick_label)}</text>'
+            )
+
+    point_nodes = ""
+    if len(values) <= 80:
+        point_nodes = "".join(
+            f'<circle cx="{x_position(date_value):.2f}" cy="{y_position(value):.2f}" '
+            'r="3.1" fill="#006b70" />'
+            for date_value, value in zip(dates, values)
         )
 
     svg = (
@@ -1070,16 +1201,16 @@ def svg_line_chart(
         f'<text x="{left}" y="55" font-family="Arial, sans-serif" font-size="13" '
         f'fill="#637477">{html.escape(period_label)}</text>'
         f'{"".join(grid_nodes)}'
+        f'{"".join(x_nodes)}'
         f'<line x1="{left}" y1="{top}" x2="{left}" y2="{top+plot_height}" '
         'stroke="#526164" stroke-width="1.2" />'
         f'<line x1="{left}" y1="{top+plot_height}" x2="{width-right}" '
         f'y2="{top+plot_height}" stroke="#526164" stroke-width="1.2" />'
-        f'{"".join(x_nodes)}'
-        f'<path d="{path}" fill="none" stroke="#006b70" stroke-width="2.8" '
+        f'<path d="{path_data}" fill="none" stroke="#006b70" stroke-width="2.8" '
         'stroke-linejoin="round" stroke-linecap="round" />'
         f'{point_nodes}'
-        f'<text x="18" y="{top + plot_height/2}" '
-        f'transform="rotate(-90 18 {top + plot_height/2})" text-anchor="middle" '
+        f'<text x="20" y="{top + plot_height/2}" '
+        f'transform="rotate(-90 20 {top + plot_height/2})" text-anchor="middle" '
         f'font-family="Arial, sans-serif" font-size="13" fill="#526164">'
         f'{html.escape(metric)}</text>'
         '</svg>'
@@ -1087,6 +1218,135 @@ def svg_line_chart(
     return svg.encode("utf-8")
 
 
+def svg_stacked_chart(
+    series_specs: list[dict[str, Any]],
+    granularity: ChartGranularity,
+    start_date: date,
+    end_date: date,
+    subsystem_label: str,
+) -> bytes:
+    """Exporta a composição completa com curvas empilhadas e eixo x compartilhado."""
+    if not series_specs:
+        raise ValueError("Nenhuma série disponível para o painel SVG.")
+
+    axis_start = pd.Timestamp(start_date)
+    axis_end = pd.Timestamp(end_date)
+    if axis_end <= axis_start:
+        axis_end = axis_start + pd.Timedelta(days=1)
+    time_ticks = svg_time_ticks(axis_start, axis_end, granularity)
+    width = svg_canvas_width(len(time_ticks))
+    left, right = 100, 34
+    header_height, row_title_height, plot_height, row_gap, bottom = 68, 30, 220, 22, 84
+    rows = len(series_specs)
+    height = header_height + rows * (row_title_height + plot_height) + max(rows - 1, 0) * row_gap + bottom
+    plot_width = width - left - right
+    axis_seconds = max((axis_end - axis_start).total_seconds(), 1.0)
+
+    def x_position(value: pd.Timestamp) -> float:
+        elapsed = (pd.Timestamp(value) - axis_start).total_seconds()
+        return left + max(0.0, min(1.0, elapsed / axis_seconds)) * plot_width
+
+    nodes: list[str] = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+        f'viewBox="0 0 {width} {height}" role="img" aria-label="{html.escape(ui_text("charts_title"))}">',
+        '<rect width="100%" height="100%" rx="16" fill="#ffffff" />',
+        f'<text x="{left}" y="30" font-family="Arial, sans-serif" font-size="21" '
+        f'font-weight="700" fill="#17383b">{html.escape(ui_text("charts_title"))}</text>',
+        f'<text x="{left}" y="53" font-family="Arial, sans-serif" font-size="13" '
+        f'fill="#637477">{html.escape(subsystem_label)} · '
+        f'{html.escape(GRANULARITY_LABELS[language][granularity])} · '
+        f'{start_date:%d/%m/%Y} a {end_date:%d/%m/%Y}</text>',
+    ]
+
+    last_plot_bottom = header_height
+    for row_index, spec in enumerate(series_specs):
+        frame = prepare_svg_series(spec["summary"], spec["metric"])
+        if frame.empty:
+            continue
+        row_top = header_height + row_index * (row_title_height + plot_height + row_gap)
+        plot_top = row_top + row_title_height
+        plot_bottom = plot_top + plot_height
+        last_plot_bottom = plot_bottom
+        values = frame[spec["metric"]].astype(float).tolist()
+        dates = frame["__period_start"].tolist()
+        y_min, y_max = min(values), max(values)
+        if math.isclose(y_min, y_max):
+            padding = max(abs(y_min) * 0.08, 1.0)
+            y_min -= padding
+            y_max += padding
+        else:
+            padding = (y_max - y_min) * 0.08
+            y_min -= padding
+            y_max += padding
+
+        def y_position(value: float) -> float:
+            return plot_top + (y_max - value) * plot_height / (y_max - y_min)
+
+        title = f'{SOURCE_LABELS[language][spec["source"]]} — {spec["metric"]}'
+        nodes.append(
+            f'<text x="{left}" y="{row_top+20}" font-family="Arial, sans-serif" '
+            f'font-size="16" font-weight="700" fill="#17383b">{html.escape(title)}</text>'
+        )
+        for tick_index in range(4):
+            tick = y_min + tick_index * (y_max - y_min) / 3
+            y = y_position(tick)
+            nodes.append(
+                f'<line x1="{left}" y1="{y:.2f}" x2="{width-right}" y2="{y:.2f}" '
+                'stroke="#d9e2e3" stroke-width="1" />'
+            )
+            nodes.append(
+                f'<text x="{left-12}" y="{y+5:.2f}" text-anchor="end" '
+                'font-family="Arial, sans-serif" font-size="12" fill="#526164">'
+                f'{html.escape(compact_number(tick))}</text>'
+            )
+        for tick_value, _ in time_ticks:
+            x = x_position(tick_value)
+            nodes.append(
+                f'<line x1="{x:.2f}" y1="{plot_top}" x2="{x:.2f}" y2="{plot_bottom}" '
+                'stroke="#eef3f4" stroke-width="1" />'
+            )
+        nodes.extend(
+            [
+                f'<line x1="{left}" y1="{plot_top}" x2="{left}" y2="{plot_bottom}" '
+                'stroke="#526164" stroke-width="1.2" />',
+                f'<line x1="{left}" y1="{plot_bottom}" x2="{width-right}" y2="{plot_bottom}" '
+                'stroke="#526164" stroke-width="1.2" />',
+            ]
+        )
+        path_data = " ".join(
+            f"{'M' if index == 0 else 'L'} {x_position(date_value):.2f} {y_position(value):.2f}"
+            for index, (date_value, value) in enumerate(zip(dates, values))
+        )
+        nodes.append(
+            f'<path d="{path_data}" fill="none" stroke="#006b70" stroke-width="2.8" '
+            'stroke-linejoin="round" stroke-linecap="round" />'
+        )
+        nodes.append(
+            f'<text x="20" y="{plot_top + plot_height/2}" '
+            f'transform="rotate(-90 20 {plot_top + plot_height/2})" text-anchor="middle" '
+            f'font-family="Arial, sans-serif" font-size="12" fill="#526164">'
+            f'{html.escape(spec["metric"])}</text>'
+        )
+
+    rotate_labels = len(time_ticks) > 16
+    label_y = last_plot_bottom + 25
+    for tick_value, tick_label in time_ticks:
+        x = x_position(tick_value)
+        if rotate_labels:
+            nodes.append(
+                f'<text x="{x:.2f}" y="{label_y:.2f}" text-anchor="end" '
+                f'transform="rotate(-45 {x:.2f} {label_y:.2f})" '
+                'font-family="Arial, sans-serif" font-size="12" fill="#526164">'
+                f'{html.escape(tick_label)}</text>'
+            )
+        else:
+            nodes.append(
+                f'<text x="{x:.2f}" y="{label_y:.2f}" text-anchor="middle" '
+                'font-family="Arial, sans-serif" font-size="12" fill="#526164">'
+                f'{html.escape(tick_label)}</text>'
+            )
+    nodes.append('</svg>')
+    return "".join(nodes).encode("utf-8")
 
 
 def chart_tick_configuration(
@@ -1270,6 +1530,8 @@ def render_chart_controls_and_exports(
                 granularity=granularity,
                 title=f"{source_label} — {metric}",
                 period_label=period_label,
+                start_date=start_date,
+                end_date=end_date,
             )
             file_name = (
                 f"grafico_{source.lower()}_{subsystem_slug(subsystem_key)}_"
@@ -1284,6 +1546,31 @@ def render_chart_controls_and_exports(
                 width="stretch",
                 key=f"download_svg_{source.lower()}",
             )
+            spec["title"] = f"{source_label} — {metric}"
+
+    if chart_specs:
+        panel_svg = svg_stacked_chart(
+            series_specs=chart_specs,
+            granularity=granularity,
+            start_date=start_date,
+            end_date=end_date,
+            subsystem_label=chart_specs[0]["subsystem_label"],
+        )
+        panel_file_name = (
+            f"painel_graficos_{subsystem_slug(subsystem_key)}_"
+            f"{GRANULARITY_SLUGS[granularity]}_{start_date:%Y%m%d}-"
+            f"{end_date:%Y%m%d}.svg"
+        )
+        st.download_button(
+            ui_text("chart_download_panel_svg"),
+            data=panel_svg,
+            file_name=panel_file_name,
+            mime="image/svg+xml",
+            width="stretch",
+            key="download_svg_full_panel",
+        )
+
+
 def render_chart_card(
     results: dict[DataSource, Any],
     source: DataSource,

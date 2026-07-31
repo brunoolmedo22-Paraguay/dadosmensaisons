@@ -1,6 +1,8 @@
 import ast
 import html
 import math
+from datetime import date
+from typing import Any
 from pathlib import Path
 import unittest
 
@@ -23,6 +25,8 @@ class ChartPanelStructureTests(unittest.TestCase):
         self.assertIn("chart_subsystem_value", self.source)
         self.assertIn("chart_granularity_value", self.source)
         self.assertIn('mime="image/svg+xml"', self.source)
+        self.assertIn('"chart_download_panel_svg"', self.source)
+        self.assertIn('key="download_svg_full_panel"', self.source)
 
     def test_compact_grid_and_inline_controls(self) -> None:
         self.assertIn('chart_panel_columns = st.columns([0.95, 1.95], gap="small")', self.source)
@@ -62,7 +66,14 @@ class SvgChartTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         tree = ast.parse(APP_PATH.read_text(encoding="utf-8"))
-        wanted = {"compact_number", "chart_x_label", "svg_line_chart"}
+        wanted = {
+            "compact_number",
+            "svg_time_ticks",
+            "svg_canvas_width",
+            "prepare_svg_series",
+            "svg_line_chart",
+            "svg_stacked_chart",
+        }
         nodes = [
             node
             for node in tree.body
@@ -76,9 +87,25 @@ class SvgChartTests(unittest.TestCase):
             "html": html,
             "Granularity": str,
             "ChartGranularity": str,
+            "date": date,
+            "Any": Any,
+            "SOURCE_LABELS": {
+                "PT": {"BALANCO": "Balanço", "EAR": "EAR", "ENA": "ENA"}
+            },
+            "GRANULARITY_LABELS": {
+                "PT": {
+                    "hourly": "Horária",
+                    "daily": "Diária",
+                    "monthly": "Mensal",
+                    "yearly": "Anual",
+                }
+            },
+            "language": "PT",
+            "ui_text": lambda key: "Painel de gráficos" if key == "charts_title" else key,
         }
         exec(compile(module, str(APP_PATH), "exec"), namespace)
         cls.svg_line_chart = staticmethod(namespace["svg_line_chart"])
+        cls.svg_stacked_chart = staticmethod(namespace["svg_stacked_chart"])
 
     def test_svg_contains_vector_path_and_labels(self) -> None:
         frame = pd.DataFrame(
@@ -99,9 +126,9 @@ class SvgChartTests(unittest.TestCase):
         self.assertTrue(svg.startswith("<svg"))
         self.assertIn("<path", svg)
         self.assertIn("#006b70", svg)
-        self.assertIn("03/2026", svg)
+        self.assertIn("03/26", svg)
         self.assertIn("ENA bruta (MWmed)", svg)
-        self.assertIn('height="330"', svg)
+        self.assertIn('height="360"', svg)
 
     def test_hourly_svg_uses_hour_labels(self) -> None:
         frame = pd.DataFrame(
@@ -121,6 +148,59 @@ class SvgChartTests(unittest.TestCase):
         ).decode("utf-8")
         self.assertIn("01/01 00h", svg)
         self.assertIn("01/01 02h", svg)
+
+    def test_long_period_svg_marks_every_year(self) -> None:
+        years = list(range(2000, 2028))
+        frame = pd.DataFrame(
+            {
+                "__period_start": pd.to_datetime([f"{year}-01-01" for year in years]),
+                "ENA bruta (MWmed)": [float(year) for year in years],
+            }
+        )
+        svg = self.svg_line_chart(
+            frame,
+            "ENA bruta (MWmed)",
+            "monthly",
+            "ENA — ENA bruta (MWmed)",
+            "SIN · Mensal · 01/01/2000 a 31/12/2027",
+            start_date=date(2000, 1, 1),
+            end_date=date(2027, 12, 31),
+        ).decode("utf-8")
+        for year in years:
+            self.assertIn(f">{year}</text>", svg)
+        self.assertIn('width="1730"', svg)
+
+    def test_stacked_svg_contains_all_selected_curves_and_shared_year_axis(self) -> None:
+        dates = pd.to_datetime(["2000-01-01", "2004-01-01", "2007-01-01"])
+        specs = []
+        for source, metric, values in (
+            ("BALANCO", "Carga (MWmed)", [100.0, 110.0, 105.0]),
+            ("EAR", "EAR máxima (MWmês)", [50.0, 52.0, 51.0]),
+            ("ENA", "ENA bruta (MWmed)", [80.0, 90.0, 85.0]),
+        ):
+            specs.append(
+                {
+                    "source": source,
+                    "metric": metric,
+                    "summary": pd.DataFrame(
+                        {"__period_start": dates, metric: values}
+                    ),
+                }
+            )
+        svg = self.svg_stacked_chart(
+            specs,
+            "monthly",
+            date(2000, 1, 1),
+            date(2007, 12, 31),
+            "SIN",
+        ).decode("utf-8")
+        self.assertIn("Balanço — Carga (MWmed)", svg)
+        self.assertIn("EAR — EAR máxima (MWmês)", svg)
+        self.assertIn("ENA — ENA bruta (MWmed)", svg)
+        self.assertEqual(svg.count("<path"), 3)
+        self.assertIn(">2000</text>", svg)
+        self.assertIn(">2004</text>", svg)
+        self.assertIn(">2007</text>", svg)
 
 
 if __name__ == "__main__":
