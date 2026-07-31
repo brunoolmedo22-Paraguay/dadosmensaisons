@@ -29,3 +29,10 @@ class AppImportStrategyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_app_uses_fresh_power_panel_module_name() -> None:
+    source = (Path(__file__).resolve().parents[1] / "app.py").read_text(encoding="utf-8")
+    assert "from power_panel_v2 import (" in source
+    assert "from power_panel import (" not in source
+    assert "use_container_width=True" not in source

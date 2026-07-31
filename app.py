@@ -22,7 +22,7 @@ import ena_processing as _ena
 import ons_download as _balance_download
 import unified_ons as _unified
 from parallel_ons import ProgressEvent, SourceSpec, run_parallel_sources
-from power_panel import (
+from power_panel_v2 import (
     BALANCE_DIFFERENCE_COLUMN,
     DUCK_CURVE_COLUMN,
     GENERATION_COLUMNS,
@@ -2973,7 +2973,7 @@ with st.container(border=True, key="charts_panel"):
                     )
                     st.plotly_chart(
                         combined_figure,
-                        use_container_width=True,
+                        width="stretch",
                         key="combined_chart_figure",
                         config={
                             "displaylogo": False,
@@ -3194,7 +3194,7 @@ with st.container(border=True, key="charts_panel"):
                         )
                         st.plotly_chart(
                             panel2_figure,
-                            use_container_width=True,
+                            width="stretch",
                             key="panel2_power_figure",
                             config={
                                 "displaylogo": False,

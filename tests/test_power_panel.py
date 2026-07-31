@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from power_panel import (
+from power_panel_v2 import (
     BALANCE_DIFFERENCE_COLUMN,
     DUCK_CURVE_COLUMN,
     HYDRO_COLUMN,
@@ -95,7 +95,7 @@ def test_duck_curve_can_ignore_wind_generation() -> None:
 
 
 def test_normalizes_source_order_without_duplicates() -> None:
-    from power_panel import normalize_source_order
+    from power_panel_v2 import normalize_source_order
 
     assert normalize_source_order(["thermal", "thermal", "solar"]) == (
         "thermal",
