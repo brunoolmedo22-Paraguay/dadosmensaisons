@@ -1709,6 +1709,49 @@ def panel2_day_boundaries(
     return list(pd.date_range(first_boundary, last_boundary, freq="D"))
 
 
+def panel2_hourly_ticks(
+    start_date: date,
+    end_date: date,
+) -> list[pd.Timestamp]:
+    """Marcações horárias do eixo x do Painel 2."""
+    span_days = max((end_date - start_date).days, 1)
+    if span_days <= 2:
+        frequency = "3h"
+    elif span_days <= 7:
+        frequency = "6h"
+    elif span_days <= 14:
+        frequency = "12h"
+    elif span_days <= 31:
+        frequency = "24h"
+    else:
+        frequency = "7D"
+    tick_start = pd.Timestamp(start_date).floor(frequency)
+    tick_end = pd.Timestamp(end_date) + pd.Timedelta(hours=23, minutes=59)
+    return list(pd.date_range(tick_start, tick_end, freq=frequency))
+
+
+def panel2_hourly_date_annotations(ticks: Sequence[pd.Timestamp]) -> list[dict[str, Any]]:
+    """Rótulos de data exibidos uma única vez por dia, abaixo do 00h."""
+    annotations: list[dict[str, Any]] = []
+    for tick in ticks:
+        if pd.Timestamp(tick).hour != 0:
+            continue
+        annotations.append(
+            {
+                "text": pd.Timestamp(tick).strftime("%d/%m"),
+                "xref": "x",
+                "yref": "paper",
+                "x": tick,
+                "y": -0.105,
+                "showarrow": False,
+                "xanchor": "center",
+                "yanchor": "top",
+                "font": {"size": 11, "color": "#526164"},
+            }
+        )
+    return annotations
+
+
 def build_power_panel_plotly_chart(
     data: pd.DataFrame,
     granularity: ChartGranularity,
@@ -1794,6 +1837,16 @@ def build_power_panel_plotly_chart(
     )
 
     tick_config = chart_tick_configuration(granularity, start_date, end_date)
+    extra_annotations: list[dict[str, Any]] = []
+    if granularity == "hourly":
+        hourly_ticks = panel2_hourly_ticks(start_date, end_date)
+        tick_config = {
+            "tickmode": "array",
+            "tickvals": hourly_ticks,
+            "ticktext": [tick.strftime("%Hh") for tick in hourly_ticks],
+            "tickangle": 0,
+        }
+        extra_annotations = panel2_hourly_date_annotations(hourly_ticks)
     day_shapes = [
         {
             "type": "line",
@@ -2052,14 +2105,24 @@ def power_panel_svg(
             f'<line x1="{left}" y1="{top_value}" x2="{left}" y2="{top_value+height_value}" stroke="#526164" stroke-width="1.2"/>',
             f'<line x1="{left}" y1="{top_value+height_value}" x2="{width-right}" y2="{top_value+height_value}" stroke="#526164" stroke-width="1.2"/>',
         ])
-    rotate = len(ticks) > 16
-    label_y = bottom_plot_top + bottom_plot_height + 25
-    for tick_value, tick_label in ticks:
-        x = x_pos(tick_value)
-        if rotate:
-            nodes.append(f'<text x="{x:.2f}" y="{label_y}" text-anchor="end" transform="rotate(-45 {x:.2f} {label_y})" font-family="Arial, sans-serif" font-size="12" fill="#526164">{html.escape(tick_label)}</text>')
-        else:
-            nodes.append(f'<text x="{x:.2f}" y="{label_y}" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#526164">{html.escape(tick_label)}</text>')
+    rotate = len(ticks) > 16 and granularity != "hourly"
+    label_y = bottom_plot_top + bottom_plot_height + 20
+    if granularity == "hourly":
+        hour_y = label_y
+        date_y = label_y + 16
+        for tick_value, _ in ticks:
+            x = x_pos(tick_value)
+            tick_ts = pd.Timestamp(tick_value)
+            nodes.append(f'<text x="{x:.2f}" y="{hour_y}" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#526164">{html.escape(tick_ts.strftime("%Hh"))}</text>')
+            if tick_ts.hour == 0:
+                nodes.append(f'<text x="{x:.2f}" y="{date_y}" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#526164">{html.escape(tick_ts.strftime("%d/%m"))}</text>')
+    else:
+        for tick_value, tick_label in ticks:
+            x = x_pos(tick_value)
+            if rotate:
+                nodes.append(f'<text x="{x:.2f}" y="{label_y}" text-anchor="end" transform="rotate(-45 {x:.2f} {label_y})" font-family="Arial, sans-serif" font-size="12" fill="#526164">{html.escape(tick_label)}</text>')
+            else:
+                nodes.append(f'<text x="{x:.2f}" y="{label_y}" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#526164">{html.escape(tick_label)}</text>')
     axis_label = html.escape(UI_TEXT[language_code]["panel2_axis"])
     nodes.extend([
         f'<text x="22" y="{top_plot_top+top_plot_height/2}" transform="rotate(-90 22 {top_plot_top+top_plot_height/2})" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#526164">{axis_label}</text>',

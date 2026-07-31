@@ -294,3 +294,12 @@ def test_panel2_avoids_generic_timedelta_unit_warning() -> None:
     source = APP_PATH.read_text(encoding="utf-8")
     assert "pd.Timedelta(0)" not in source
     assert "pd.Timedelta(seconds=0)" in source
+
+
+def test_panel2_hourly_axis_shows_hour_and_date_once() -> None:
+    source = APP_PATH.read_text(encoding="utf-8")
+    assert 'def panel2_hourly_ticks(' in source
+    assert 'def panel2_hourly_date_annotations(' in source
+    assert 'ticktext": [tick.strftime("%Hh") for tick in hourly_ticks]' in source
+    assert 'if tick_ts.hour == 0:' in source
+    assert 'tick_ts.strftime("%d/%m")' in source
