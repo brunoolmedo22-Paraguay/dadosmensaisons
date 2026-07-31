@@ -33,6 +33,13 @@ class ChartPanelStructureTests(unittest.TestCase):
         self.assertIn('st.plotly_chart(', self.source)
         self.assertNotIn("min-height: 31rem", self.source)
 
+    def test_hover_line_is_synchronized_across_all_subplots(self) -> None:
+        self.assertIn('hoversubplots="axis"', self.source)
+        self.assertIn('hovermode="x"', self.source)
+        self.assertIn('xaxis="x"', self.source)
+        self.assertIn('"spikemode": "across"', self.source)
+        self.assertNotIn('shared_xaxes=True', self.source)
+
     def test_hourly_is_chart_only_and_filters_non_hourly_sources(self) -> None:
         self.assertIn('CHART_GRANULARITIES', self.source)
         self.assertIn('"hourly",', self.source)

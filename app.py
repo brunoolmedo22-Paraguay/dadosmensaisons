@@ -13,7 +13,6 @@ from typing import Any, Literal, Sequence
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-from plotly.subplots import make_subplots
 
 import balanco_ons as _balanco
 import ear_download as _ear_download
@@ -1129,22 +1128,30 @@ def build_combined_plotly_chart(
     start_date: date,
     end_date: date,
 ) -> go.Figure:
+    """Cria curvas empilhadas sobre um único eixo x temporal interativo."""
     rows = len(series_specs)
-    figure = make_subplots(
-        rows=rows,
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.04 if rows > 1 else 0.02,
-        subplot_titles=[spec["title"] for spec in series_specs],
-    )
+    figure = go.Figure()
+    vertical_gap = 0.045 if rows > 1 else 0.0
+    row_height = (1.0 - vertical_gap * max(rows - 1, 0)) / max(rows, 1)
+    annotations: list[dict[str, Any]] = []
+    layout_axes: dict[str, Any] = {}
 
-    for row_number, spec in enumerate(series_specs, start=1):
+    for row_index, spec in enumerate(series_specs):
         frame = spec["summary"][["__period_start", spec["metric"]]].copy()
-        frame["__period_start"] = pd.to_datetime(frame["__period_start"], errors="coerce")
-        frame[spec["metric"]] = pd.to_numeric(frame[spec["metric"]], errors="coerce")
+        frame["__period_start"] = pd.to_datetime(
+            frame["__period_start"], errors="coerce"
+        )
+        frame[spec["metric"]] = pd.to_numeric(
+            frame[spec["metric"]], errors="coerce"
+        )
         frame = frame.dropna().sort_values("__period_start", kind="stable")
         if frame.empty:
             continue
+
+        y_axis_reference = "y" if row_index == 0 else f"y{row_index + 1}"
+        y_layout_key = "yaxis" if row_index == 0 else f"yaxis{row_index + 1}"
+        domain_top = 1.0 - row_index * (row_height + vertical_gap)
+        domain_bottom = max(0.0, domain_top - row_height)
 
         hover_template = (
             "%{x|%d/%m/%Y %H:%M}<br>%{y:,.2f}<extra></extra>"
@@ -1160,59 +1167,73 @@ def build_combined_plotly_chart(
             go.Scatter(
                 x=frame["__period_start"],
                 y=frame[spec["metric"]],
+                xaxis="x",
+                yaxis=y_axis_reference,
                 mode="lines",
                 line={"color": "#0b7a80", "width": 2.4},
                 name=spec["title"],
                 hovertemplate=hover_template,
                 showlegend=False,
-            ),
-            row=row_number,
-            col=1,
+            )
         )
-        figure.update_yaxes(
-            title_text=spec["metric"],
-            row=row_number,
-            col=1,
-            gridcolor="#dde7e8",
-            zeroline=False,
-            showline=True,
-            linecolor="#a5b6b8",
-            mirror=False,
-            tickfont={"size": 11, "color": "#526164"},
-            title_font={"size": 12, "color": "#526164"},
+
+        layout_axes[y_layout_key] = {
+            "domain": [domain_bottom, domain_top],
+            "anchor": "x",
+            "title": {"text": spec["metric"], "font": {"size": 12, "color": "#526164"}},
+            "gridcolor": "#dde7e8",
+            "zeroline": False,
+            "showline": True,
+            "linecolor": "#a5b6b8",
+            "tickfont": {"size": 11, "color": "#526164"},
+            "fixedrange": False,
+        }
+        annotations.append(
+            {
+                "text": spec["title"],
+                "xref": "paper",
+                "yref": "paper",
+                "x": 0.0,
+                "y": min(1.0, domain_top + 0.012),
+                "xanchor": "left",
+                "yanchor": "bottom",
+                "showarrow": False,
+                "font": {"size": 15, "color": "#17383b"},
+            }
         )
 
     tick_config = chart_tick_configuration(granularity, start_date, end_date)
-    for row_number in range(1, rows + 1):
-        figure.update_xaxes(
-            row=row_number,
-            col=1,
-            showgrid=True,
-            gridcolor="#eef3f4",
-            showline=True,
-            linecolor="#a5b6b8",
-            tickfont={"size": 11, "color": "#526164"},
-            showspikes=True,
-            spikemode="across",
-            spikesnap="cursor",
-            spikethickness=1,
-            spikecolor="#7a8f91",
-            **tick_config,
-        )
-
     figure.update_layout(
+        **layout_axes,
+        xaxis={
+            "domain": [0.0, 1.0],
+            "anchor": "free",
+            "position": 0.0,
+            "side": "bottom",
+            "showgrid": True,
+            "gridcolor": "#eef3f4",
+            "showline": True,
+            "linecolor": "#a5b6b8",
+            "tickfont": {"size": 11, "color": "#526164"},
+            "showspikes": True,
+            "spikemode": "across",
+            "spikesnap": "cursor",
+            "spikethickness": 1.2,
+            "spikedash": "solid",
+            "spikecolor": "#647b7d",
+            **tick_config,
+        },
+        annotations=annotations,
         height=250 * rows + 40,
-        margin={"l": 20, "r": 14, "t": 56, "b": 32},
+        margin={"l": 20, "r": 14, "t": 42, "b": 42},
         paper_bgcolor="#ffffff",
         plot_bgcolor="#ffffff",
         hovermode="x",
+        hoversubplots="axis",
+        hoverdistance=-1,
         spikedistance=-1,
         dragmode="pan",
         font={"family": "Arial, sans-serif", "color": "#17383b"},
-        title={
-            "text": " ",
-            "x": 0.0,
-        },
     )
     return figure
 
