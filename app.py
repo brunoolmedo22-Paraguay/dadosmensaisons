@@ -1639,6 +1639,24 @@ def build_combined_plotly_chart(
         )
 
     tick_config = chart_tick_configuration(granularity, start_date, end_date)
+    day_shapes = [
+        {
+            "type": "line",
+            "xref": "x",
+            "yref": "paper",
+            "x0": boundary,
+            "x1": boundary,
+            "y0": 0.0,
+            "y1": 1.0,
+            "line": {
+                "color": "#bcc9cb",
+                "width": 1.0,
+                "dash": "dot",
+            },
+            "layer": "below",
+        }
+        for boundary in panel2_day_boundaries(granularity, start_date, end_date)
+    ]
     figure.update_layout(
         **layout_axes,
         xaxis={
@@ -1692,6 +1710,21 @@ def panel2_source_label(source_key: str, language_code: str) -> str:
         "solar": "panel2_solar",
     }
     return UI_TEXT[language_code][label_keys[source_key]]
+
+
+def panel2_day_boundaries(
+    granularity: ChartGranularity,
+    start_date: date,
+    end_date: date,
+) -> list[pd.Timestamp]:
+    """Retorna os inícios de dia para realçar jornadas no Painel 2."""
+    if granularity != "hourly":
+        return []
+    first_boundary = pd.Timestamp(start_date).normalize() + pd.Timedelta(days=1)
+    last_boundary = pd.Timestamp(end_date).normalize()
+    if first_boundary > last_boundary:
+        return []
+    return list(pd.date_range(first_boundary, last_boundary, freq="D"))
 
 
 def build_power_panel_plotly_chart(
@@ -1837,6 +1870,7 @@ def build_power_panel_plotly_chart(
                 "font": {"size": 15, "color": "#17383b"},
             },
         ],
+        shapes=day_shapes,
         height=690,
         margin={"l": 24, "r": 14, "t": 70, "b": 52},
         paper_bgcolor="#ffffff",
@@ -1952,6 +1986,12 @@ def power_panel_svg(
         nodes.extend([
             f'<line x1="{x:.2f}" y1="{top_plot_top}" x2="{x:.2f}" y2="{top_plot_top+top_plot_height}" stroke="#eef3f4"/>',
             f'<line x1="{x:.2f}" y1="{bottom_plot_top}" x2="{x:.2f}" y2="{bottom_plot_top+bottom_plot_height}" stroke="#eef3f4"/>',
+        ])
+    for boundary in panel2_day_boundaries(granularity, start_date, end_date):
+        x = x_pos(boundary)
+        nodes.extend([
+            f'<line x1="{x:.2f}" y1="{top_plot_top}" x2="{x:.2f}" y2="{top_plot_top+top_plot_height}" stroke="#bcc9cb" stroke-width="1" stroke-dasharray="5 5"/>',
+            f'<line x1="{x:.2f}" y1="{bottom_plot_top}" x2="{x:.2f}" y2="{bottom_plot_top+bottom_plot_height}" stroke="#bcc9cb" stroke-width="1" stroke-dasharray="5 5"/>',
         ])
 
     # Curvas superiores.

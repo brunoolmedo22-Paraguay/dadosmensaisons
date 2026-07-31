@@ -268,3 +268,10 @@ def test_panel2_has_pastel_order_duck_toggle_hour_axis_and_svg() -> None:
     assert '"tickformat": "%d/%m\\n%Hh"' in source
     assert 'power_panel_svg(' in source
     assert 'ui_text("panel2_download_svg")' in source
+
+
+def test_panel2_marks_day_boundaries_with_dashed_lines() -> None:
+    source = APP_PATH.read_text(encoding="utf-8")
+    assert 'def panel2_day_boundaries(' in source
+    assert '"dash": "dot"' in source
+    assert 'stroke-dasharray="5 5"' in source
