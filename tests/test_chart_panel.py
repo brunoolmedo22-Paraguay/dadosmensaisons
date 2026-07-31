@@ -275,3 +275,22 @@ def test_panel2_marks_day_boundaries_with_dashed_lines() -> None:
     assert 'def panel2_day_boundaries(' in source
     assert '"dash": "dot"' in source
     assert 'stroke-dasharray="5 5"' in source
+
+
+def test_panel2_day_shapes_are_defined_inside_plot_builder() -> None:
+    source = APP_PATH.read_text(encoding="utf-8")
+    panel2_start = source.index("def build_power_panel_plotly_chart(")
+    panel2_end = source.index("def power_panel_svg(", panel2_start)
+    panel2_source = source[panel2_start:panel2_end]
+    assert "day_shapes = [" in panel2_source
+    assert "shapes=day_shapes" in panel2_source
+    assert panel2_source.index("day_shapes = [") < panel2_source.index("shapes=day_shapes")
+    panel1_start = source.index("def build_combined_plotly_chart(")
+    panel1_end = source.index("def panel2_component_style(", panel1_start)
+    assert "day_shapes = [" not in source[panel1_start:panel1_end]
+
+
+def test_panel2_avoids_generic_timedelta_unit_warning() -> None:
+    source = APP_PATH.read_text(encoding="utf-8")
+    assert "pd.Timedelta(0)" not in source
+    assert "pd.Timedelta(seconds=0)" in source

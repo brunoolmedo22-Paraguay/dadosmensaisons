@@ -1639,24 +1639,6 @@ def build_combined_plotly_chart(
         )
 
     tick_config = chart_tick_configuration(granularity, start_date, end_date)
-    day_shapes = [
-        {
-            "type": "line",
-            "xref": "x",
-            "yref": "paper",
-            "x0": boundary,
-            "x1": boundary,
-            "y0": 0.0,
-            "y1": 1.0,
-            "line": {
-                "color": "#bcc9cb",
-                "width": 1.0,
-                "dash": "dot",
-            },
-            "layer": "below",
-        }
-        for boundary in panel2_day_boundaries(granularity, start_date, end_date)
-    ]
     figure.update_layout(
         **layout_axes,
         xaxis={
@@ -1812,6 +1794,24 @@ def build_power_panel_plotly_chart(
     )
 
     tick_config = chart_tick_configuration(granularity, start_date, end_date)
+    day_shapes = [
+        {
+            "type": "line",
+            "xref": "x",
+            "yref": "paper",
+            "x0": boundary,
+            "x1": boundary,
+            "y0": 0.0,
+            "y1": 1.0,
+            "line": {
+                "color": "#bcc9cb",
+                "width": 1.0,
+                "dash": "dot",
+            },
+            "layer": "below",
+        }
+        for boundary in panel2_day_boundaries(granularity, start_date, end_date)
+    ]
     figure.update_layout(
         xaxis={
             "domain": [0.0, 1.0],
@@ -1912,7 +1912,7 @@ def power_panel_svg(
     frame = frame.dropna(subset=[PERIOD_COLUMN])
     axis_start = pd.Timestamp(start_date)
     axis_end = pd.Timestamp(end_date) + (
-        pd.Timedelta(hours=23, minutes=59) if granularity == "hourly" else pd.Timedelta(0)
+        pd.Timedelta(hours=23, minutes=59) if granularity == "hourly" else pd.Timedelta(seconds=0)
     )
     if axis_end <= axis_start:
         axis_end = axis_start + pd.Timedelta(days=1)
