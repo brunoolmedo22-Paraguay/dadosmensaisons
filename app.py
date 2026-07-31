@@ -1730,28 +1730,6 @@ def panel2_hourly_ticks(
     return list(pd.date_range(tick_start, tick_end, freq=frequency))
 
 
-def panel2_hourly_date_annotations(ticks: Sequence[pd.Timestamp]) -> list[dict[str, Any]]:
-    """Rótulos de data exibidos uma única vez por dia, abaixo do 00h."""
-    annotations: list[dict[str, Any]] = []
-    for tick in ticks:
-        if pd.Timestamp(tick).hour != 0:
-            continue
-        annotations.append(
-            {
-                "text": pd.Timestamp(tick).strftime("%d/%m"),
-                "xref": "x",
-                "yref": "paper",
-                "x": tick,
-                "y": -0.105,
-                "showarrow": False,
-                "xanchor": "center",
-                "yanchor": "top",
-                "font": {"size": 11, "color": "#526164"},
-            }
-        )
-    return annotations
-
-
 def build_power_panel_plotly_chart(
     data: pd.DataFrame,
     granularity: ChartGranularity,
@@ -1837,16 +1815,21 @@ def build_power_panel_plotly_chart(
     )
 
     tick_config = chart_tick_configuration(granularity, start_date, end_date)
-    extra_annotations: list[dict[str, Any]] = []
     if granularity == "hourly":
         hourly_ticks = panel2_hourly_ticks(start_date, end_date)
         tick_config = {
             "tickmode": "array",
             "tickvals": hourly_ticks,
-            "ticktext": [tick.strftime("%Hh") for tick in hourly_ticks],
+            "ticktext": [
+                (
+                    f"{tick:%Hh}<br>{tick:%d/%m}"
+                    if pd.Timestamp(tick).hour == 0
+                    else f"{tick:%Hh}"
+                )
+                for tick in hourly_ticks
+            ],
             "tickangle": 0,
         }
-        extra_annotations = panel2_hourly_date_annotations(hourly_ticks)
     day_shapes = [
         {
             "type": "line",
