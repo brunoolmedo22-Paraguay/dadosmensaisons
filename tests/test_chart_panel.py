@@ -44,6 +44,14 @@ class ChartPanelStructureTests(unittest.TestCase):
         self.assertIn('"spikemode": "across"', self.source)
         self.assertNotIn('shared_xaxes=True', self.source)
 
+    def test_chart_metric_labels_follow_selected_language(self) -> None:
+        self.assertIn('METRIC_LABELS_BY_LANGUAGE', self.source)
+        self.assertIn('"Generación hidráulica (MWmed)"', self.source)
+        self.assertIn('"ENA almacenable (MWmed)"', self.source)
+        self.assertIn('format_func=lambda value: chart_metric_label(value, language)', self.source)
+        self.assertIn('spec["metric_label"] = metric_display', self.source)
+        self.assertIn('spec.get("metric_label", spec["metric"])', self.source)
+
     def test_hourly_is_chart_only_and_filters_non_hourly_sources(self) -> None:
         self.assertIn('CHART_GRANULARITIES', self.source)
         self.assertIn('"hourly",', self.source)
@@ -129,6 +137,25 @@ class SvgChartTests(unittest.TestCase):
         self.assertIn("03/26", svg)
         self.assertIn("ENA bruta (MWmed)", svg)
         self.assertIn('height="360"', svg)
+
+    def test_individual_svg_uses_translated_metric_on_y_axis(self) -> None:
+        frame = pd.DataFrame(
+            {
+                "__period_start": pd.to_datetime(["2026-01-01", "2026-02-01"]),
+                "Geração hidráulica (MWmed)": [100.0, 120.0],
+            }
+        )
+        svg = self.svg_line_chart(
+            frame,
+            "Geração hidráulica (MWmed)",
+            "monthly",
+            "Balance — Generación hidráulica (MWmed)",
+            "SIN · Mensual · 01/01/2026 a 28/02/2026",
+            metric_display="Generación hidráulica (MWmed)",
+        ).decode("utf-8")
+        self.assertIn("Balance — Generación hidráulica (MWmed)", svg)
+        self.assertIn("Generación hidráulica (MWmed)</text>", svg)
+        self.assertNotIn("Geração hidráulica (MWmed)</text>", svg)
 
     def test_hourly_svg_uses_hour_labels(self) -> None:
         frame = pd.DataFrame(

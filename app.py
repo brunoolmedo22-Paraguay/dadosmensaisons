@@ -86,6 +86,46 @@ SOURCE_LABELS: dict[str, dict[DataSource, str]] = {
     "ES": {"BALANCO": "Balance", "EAR": "EAR", "ENA": "ENA"},
 }
 
+METRIC_LABELS_BY_LANGUAGE: dict[str, dict[str, str]] = {
+    "PT": {
+        "Geração hidráulica (MWmed)": "Geração hidráulica (MWmed)",
+        "Geração térmica (MWmed)": "Geração térmica (MWmed)",
+        "Geração eólica (MWmed)": "Geração eólica (MWmed)",
+        "Geração solar (MWmed)": "Geração solar (MWmed)",
+        "Carga (MWmed)": "Carga (MWmed)",
+        "Intercâmbio (MWmed)": "Intercâmbio (MWmed)",
+        "EAR máxima (MWmês)": "EAR máxima (MWmês)",
+        "EAR verificada (MWmês)": "EAR verificada (MWmês)",
+        "EAR verificada (%)": "EAR verificada (%)",
+        "ENA bruta (MWmed)": "ENA bruta (MWmed)",
+        "ENA bruta (% MLT)": "ENA bruta (% MLT)",
+        "ENA armazenável (MWmed)": "ENA armazenável (MWmed)",
+        "ENA armazenável (% MLT)": "ENA armazenável (% MLT)",
+    },
+    "ES": {
+        "Geração hidráulica (MWmed)": "Generación hidráulica (MWmed)",
+        "Geração térmica (MWmed)": "Generación térmica (MWmed)",
+        "Geração eólica (MWmed)": "Generación eólica (MWmed)",
+        "Geração solar (MWmed)": "Generación solar (MWmed)",
+        "Carga (MWmed)": "Carga (MWmed)",
+        "Intercâmbio (MWmed)": "Intercambio (MWmed)",
+        "EAR máxima (MWmês)": "EAR máxima (MWmes)",
+        "EAR verificada (MWmês)": "EAR verificada (MWmes)",
+        "EAR verificada (%)": "EAR verificada (%)",
+        "ENA bruta (MWmed)": "ENA bruta (MWmed)",
+        "ENA bruta (% MLT)": "ENA bruta (% MLT)",
+        "ENA armazenável (MWmed)": "ENA almacenable (MWmed)",
+        "ENA armazenável (% MLT)": "ENA almacenable (% MLT)",
+    },
+}
+
+
+def chart_metric_label(metric: str, language_code: str | None = None) -> str:
+    selected_language = language_code or st.session_state.get("ui_language", "PT")
+    if selected_language not in METRIC_LABELS_BY_LANGUAGE:
+        selected_language = "PT"
+    return METRIC_LABELS_BY_LANGUAGE[selected_language].get(metric, metric)
+
 UI_TEXT: dict[str, dict[str, str]] = {
     "PT": {
         "hero_kicker": "ONS · Consolidação histórica",
@@ -1095,6 +1135,7 @@ def svg_line_chart(
     granularity: ChartGranularity,
     title: str,
     period_label: str,
+    metric_display: str | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
 ) -> bytes:
@@ -1212,7 +1253,7 @@ def svg_line_chart(
         f'<text x="20" y="{top + plot_height/2}" '
         f'transform="rotate(-90 20 {top + plot_height/2})" text-anchor="middle" '
         f'font-family="Arial, sans-serif" font-size="13" fill="#526164">'
-        f'{html.escape(metric)}</text>'
+        f'{html.escape(metric_display or metric)}</text>'
         '</svg>'
     )
     return svg.encode("utf-8")
@@ -1282,7 +1323,8 @@ def svg_stacked_chart(
         def y_position(value: float) -> float:
             return plot_top + (y_max - value) * plot_height / (y_max - y_min)
 
-        title = f'{SOURCE_LABELS[language][spec["source"]]} — {spec["metric"]}'
+        metric_display = spec.get("metric_label", spec["metric"])
+        title = f'{SOURCE_LABELS[language][spec["source"]]} — {metric_display}'
         nodes.append(
             f'<text x="{left}" y="{row_top+20}" font-family="Arial, sans-serif" '
             f'font-size="16" font-weight="700" fill="#17383b">{html.escape(title)}</text>'
@@ -1325,7 +1367,7 @@ def svg_stacked_chart(
             f'<text x="20" y="{plot_top + plot_height/2}" '
             f'transform="rotate(-90 20 {plot_top + plot_height/2})" text-anchor="middle" '
             f'font-family="Arial, sans-serif" font-size="12" fill="#526164">'
-            f'{html.escape(spec["metric"])}</text>'
+            f'{html.escape(metric_display)}</text>'
         )
 
     rotate_labels = len(time_ticks) > 16
@@ -1440,7 +1482,7 @@ def build_combined_plotly_chart(
         layout_axes[y_layout_key] = {
             "domain": [domain_bottom, domain_top],
             "anchor": "x",
-            "title": {"text": spec["metric"], "font": {"size": 12, "color": "#526164"}},
+            "title": {"text": spec.get("metric_label", spec["metric"]), "font": {"size": 12, "color": "#526164"}},
             "gridcolor": "#dde7e8",
             "zeroline": False,
             "showline": True,
@@ -1517,8 +1559,11 @@ def render_chart_controls_and_exports(
                 ui_text("chart_metric_selector"),
                 options=spec["metrics"],
                 key=f"chart_metric_{source.lower()}",
+                format_func=lambda value: chart_metric_label(value, language),
             )
+            metric_display = chart_metric_label(metric, language)
             spec["metric"] = metric
+            spec["metric_label"] = metric_display
             period_label = (
                 f"{spec['subsystem_label']} · "
                 f"{GRANULARITY_LABELS[language][granularity]} · "
@@ -1528,8 +1573,9 @@ def render_chart_controls_and_exports(
                 summary=spec["summary"],
                 metric=metric,
                 granularity=granularity,
-                title=f"{source_label} — {metric}",
+                title=f"{source_label} — {metric_display}",
                 period_label=period_label,
+                metric_display=metric_display,
                 start_date=start_date,
                 end_date=end_date,
             )
@@ -1546,7 +1592,7 @@ def render_chart_controls_and_exports(
                 width="stretch",
                 key=f"download_svg_{source.lower()}",
             )
-            spec["title"] = f"{source_label} — {metric}"
+            spec["title"] = f"{source_label} — {metric_display}"
 
     if chart_specs:
         panel_svg = svg_stacked_chart(
@@ -1609,6 +1655,7 @@ def render_chart_card(
                 ui_text("chart_metric_selector"),
                 options=metrics,
                 key=metric_key,
+                format_func=lambda value: chart_metric_label(value, language),
             )
 
         period_label = (
@@ -1616,12 +1663,14 @@ def render_chart_card(
             f"{GRANULARITY_LABELS[language][granularity]} · "
             f"{ui_text('chart_period').format(start=start_date.strftime('%d/%m/%Y'), end=end_date.strftime('%d/%m/%Y'))}"
         )
+        metric_display = chart_metric_label(metric, language)
         svg_bytes = svg_line_chart(
             summary=summary,
             metric=metric,
             granularity=granularity,
-            title=f"{source_label} — {metric}",
+            title=f"{source_label} — {metric_display}",
             period_label=period_label,
+            metric_display=metric_display,
         )
         file_name = (
             f"grafico_{source.lower()}_{subsystem_slug(subsystem_key)}_"
@@ -2394,7 +2443,8 @@ with st.container(border=True, key="charts_panel"):
                                 "metrics": metrics,
                                 "subsystem_label": chart_subsystem_label,
                                 "metric": st.session_state[metric_key],
-                                "title": f"{SOURCE_LABELS[language][source]} — {st.session_state[metric_key]}",
+                                "metric_label": chart_metric_label(st.session_state[metric_key], language),
+                                "title": f"{SOURCE_LABELS[language][source]} — {chart_metric_label(st.session_state[metric_key], language)}",
                             }
                         )
                     render_chart_controls_and_exports(
