@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Final
 
 import pandas as pd
@@ -22,14 +23,25 @@ GENERATION_COLUMNS: Final[tuple[str, ...]] = (
     WIND_COLUMN,
     SOLAR_COLUMN,
 )
+SOURCE_KEYS: Final[tuple[str, ...]] = ("hydro", "thermal", "wind", "solar")
+SOURCE_COLUMN_BY_KEY: Final[dict[str, str]] = {
+    "hydro": HYDRO_COLUMN,
+    "thermal": THERMAL_COLUMN,
+    "wind": WIND_COLUMN,
+    "solar": SOLAR_COLUMN,
+}
 
 
-def prepare_power_panel_data(summary: pd.DataFrame) -> pd.DataFrame:
+def prepare_power_panel_data(
+    summary: pd.DataFrame,
+    *,
+    include_wind_in_duck_curve: bool = True,
+) -> pd.DataFrame:
     """Prepara carga, curva de pato e componentes sem alterar o resumo original.
 
-    A curva de pato é definida como carga líquida após geração eólica e solar:
-    ``Carga - Eólica - Solar``. As fontes ausentes são tratadas como zero, mas a
-    carga e o instante são obrigatórios.
+    A curva de pato é definida como carga líquida após solar e, opcionalmente,
+    eólica. As fontes ausentes são tratadas como zero, mas a carga e o instante
+    são obrigatórios.
     """
     if summary.empty or PERIOD_COLUMN not in summary.columns or LOAD_COLUMN not in summary.columns:
         return pd.DataFrame()
@@ -50,13 +62,28 @@ def prepare_power_panel_data(summary: pd.DataFrame) -> pd.DataFrame:
     if result.empty:
         return result
 
-    result[VARIABLE_RENEWABLE_COLUMN] = result[WIND_COLUMN] + result[SOLAR_COLUMN]
+    if include_wind_in_duck_curve:
+        result[VARIABLE_RENEWABLE_COLUMN] = result[WIND_COLUMN] + result[SOLAR_COLUMN]
+    else:
+        result[VARIABLE_RENEWABLE_COLUMN] = result[SOLAR_COLUMN]
     result[DUCK_CURVE_COLUMN] = result[LOAD_COLUMN] - result[VARIABLE_RENEWABLE_COLUMN]
     result[TOTAL_GENERATION_COLUMN] = result[list(GENERATION_COLUMNS)].sum(axis=1)
     result[BALANCE_DIFFERENCE_COLUMN] = (
         result[LOAD_COLUMN] - result[TOTAL_GENERATION_COLUMN]
     )
     return result
+
+
+def normalize_source_order(values: Iterable[str]) -> tuple[str, ...]:
+    """Retorna as quatro fontes sem repetição, preservando a ordem válida."""
+    ordered: list[str] = []
+    for value in values:
+        if value in SOURCE_KEYS and value not in ordered:
+            ordered.append(value)
+    for value in SOURCE_KEYS:
+        if value not in ordered:
+            ordered.append(value)
+    return tuple(ordered)
 
 
 def material_balance_difference(data: pd.DataFrame) -> bool:

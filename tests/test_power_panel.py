@@ -73,3 +73,33 @@ def test_detects_material_difference_between_load_and_sources() -> None:
     )
     result = prepare_power_panel_data(source)
     assert material_balance_difference(result)
+
+
+def test_duck_curve_can_ignore_wind_generation() -> None:
+    source = pd.DataFrame(
+        {
+            PERIOD_COLUMN: [pd.Timestamp("2026-01-01 12:00")],
+            LOAD_COLUMN: [100.0],
+            WIND_COLUMN: [15.0],
+            SOLAR_COLUMN: [10.0],
+        }
+    )
+
+    result = prepare_power_panel_data(
+        source,
+        include_wind_in_duck_curve=False,
+    )
+
+    assert result.loc[0, VARIABLE_RENEWABLE_COLUMN] == 10.0
+    assert result.loc[0, DUCK_CURVE_COLUMN] == 90.0
+
+
+def test_normalizes_source_order_without_duplicates() -> None:
+    from power_panel import normalize_source_order
+
+    assert normalize_source_order(["thermal", "thermal", "solar"]) == (
+        "thermal",
+        "solar",
+        "hydro",
+        "wind",
+    )

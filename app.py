@@ -30,10 +30,13 @@ from power_panel import (
     LOAD_COLUMN,
     PERIOD_COLUMN,
     SOLAR_COLUMN,
+    SOURCE_COLUMN_BY_KEY,
+    SOURCE_KEYS,
     THERMAL_COLUMN,
     TOTAL_GENERATION_COLUMN,
     WIND_COLUMN,
     material_balance_difference,
+    normalize_source_order,
     prepare_power_panel_data,
 )
 
@@ -246,15 +249,22 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "panel2_duck_title": "Carga e curva de pato",
         "panel2_stack_title": "Composição da carga por fonte",
         "panel2_duck_curve": "Curva de pato (Carga − Eólica − Solar)",
+        "panel2_duck_curve_solar": "Curva de pato (Carga − Solar)",
         "panel2_load": "Carga",
         "panel2_hydro": "Hidráulica",
         "panel2_thermal": "Térmica",
         "panel2_wind": "Eólica",
         "panel2_solar": "Solar",
         "panel2_axis": "Potência média (MWmed)",
-        "panel2_definition": (
-            "Curva de pato = Carga − Geração eólica − Geração solar."
-        ),
+        "panel2_definition": "Curva de pato = Carga − Geração eólica − Geração solar.",
+        "panel2_definition_solar": "Curva de pato = Carga − Geração solar.",
+        "panel2_include_wind": "Considerar eólica na curva de pato",
+        "panel2_order_title": "Ordem das fontes no empilhamento",
+        "panel2_order_copy": "A 1ª fonte fica na base; a 4ª fica no topo.",
+        "panel2_order_1": "1ª fonte",
+        "panel2_order_2": "2ª fonte",
+        "panel2_order_3": "3ª fonte",
+        "panel2_order_4": "4ª fonte",
         "panel2_balance_note": (
             "A linha da carga é mantida sobre as áreas empilhadas. Para subsistemas, "
             "diferenças entre a carga e a soma das quatro fontes refletem principalmente "
@@ -388,15 +398,22 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "panel2_duck_title": "Carga y curva de pato",
         "panel2_stack_title": "Composición de la carga por fuente",
         "panel2_duck_curve": "Curva de pato (Carga − Eólica − Solar)",
+        "panel2_duck_curve_solar": "Curva de pato (Carga − Solar)",
         "panel2_load": "Carga",
         "panel2_hydro": "Hidráulica",
         "panel2_thermal": "Térmica",
         "panel2_wind": "Eólica",
         "panel2_solar": "Solar",
         "panel2_axis": "Potencia media (MWmed)",
-        "panel2_definition": (
-            "Curva de pato = Carga − Generación eólica − Generación solar."
-        ),
+        "panel2_definition": "Curva de pato = Carga − Generación eólica − Generación solar.",
+        "panel2_definition_solar": "Curva de pato = Carga − Generación solar.",
+        "panel2_include_wind": "Considerar eólica en la curva de pato",
+        "panel2_order_title": "Orden de las fuentes en el apilamiento",
+        "panel2_order_copy": "La 1.ª fuente queda en la base; la 4.ª queda arriba.",
+        "panel2_order_1": "1.ª fuente",
+        "panel2_order_2": "2.ª fuente",
+        "panel2_order_3": "3.ª fuente",
+        "panel2_order_4": "4.ª fuente",
         "panel2_balance_note": (
             "La línea de carga se mantiene sobre las áreas apiladas. Para subsistemas, "
             "las diferencias entre la carga y la suma de las cuatro fuentes reflejan "
@@ -1141,19 +1158,18 @@ def svg_time_ticks(
     yearly_axis = False
     if granularity == "hourly":
         if span_days <= 2:
-            tick_start = start_timestamp.floor("6h")
-            ticks = pd.date_range(tick_start, end_timestamp, freq="6h")
-            formatter = lambda value: value.strftime("%d/%m %Hh")
+            frequency = "3h"
+        elif span_days <= 7:
+            frequency = "6h"
         elif span_days <= 14:
-            ticks = pd.date_range(start_timestamp.normalize(), end_timestamp, freq="D")
-            formatter = lambda value: value.strftime("%d/%m")
-        elif span_days <= 90:
-            ticks = pd.date_range(start_timestamp.normalize(), end_timestamp, freq="7D")
-            formatter = lambda value: value.strftime("%d/%m/%y")
+            frequency = "12h"
+        elif span_days <= 31:
+            frequency = "24h"
         else:
-            first_month = start_timestamp.to_period("M").start_time
-            ticks = pd.date_range(first_month, end_timestamp, freq="MS")
-            formatter = lambda value: value.strftime("%m/%Y")
+            frequency = "7D"
+        tick_start = start_timestamp.floor(frequency)
+        ticks = pd.date_range(tick_start, end_timestamp, freq=frequency)
+        formatter = lambda value: value.strftime("%d/%m %Hh")
     elif granularity == "daily":
         if span_days <= 120:
             ticks = pd.date_range(start_timestamp.normalize(), end_timestamp, freq="14D")
@@ -1509,6 +1525,24 @@ def chart_tick_configuration(
     end_date: date,
 ) -> dict[str, Any]:
     span_days = max((end_date - start_date).days, 1)
+    if granularity == "hourly":
+        if span_days <= 2:
+            step_hours = 3
+        elif span_days <= 7:
+            step_hours = 6
+        elif span_days <= 14:
+            step_hours = 12
+        elif span_days <= 31:
+            step_hours = 24
+        else:
+            step_hours = 7 * 24
+        return {
+            "tickmode": "linear",
+            "tick0": f"{start_date:%Y-%m-%d} 00:00",
+            "tickformat": "%d/%m\n%Hh",
+            "dtick": step_hours * 60 * 60 * 1000,
+            "tickangle": 0 if span_days <= 14 else -45,
+        }
     if granularity in {"monthly", "yearly", "daily"}:
         return {
             "tickmode": "linear",
@@ -1516,18 +1550,6 @@ def chart_tick_configuration(
             "dtick": "M12",
             "tickformat": "%Y",
             "tickangle": 0 if span_days <= 3650 else -45,
-        }
-    if span_days <= 14:
-        return {
-            "tickformat": "%d/%m\n%Hh",
-            "dtick": 24 * 60 * 60 * 1000,
-            "tickangle": 0,
-        }
-    if span_days <= 120:
-        return {
-            "tickformat": "%d/%m/%y",
-            "dtick": 7 * 24 * 60 * 60 * 1000,
-            "tickangle": 0,
         }
     return {
         "tickformat": "%m/%Y",
@@ -1652,12 +1674,34 @@ def build_combined_plotly_chart(
     return figure
 
 
+def panel2_component_style(source_key: str) -> dict[str, str]:
+    """Paleta pastel usada na tela e nas exportações do Painel 2."""
+    return {
+        "hydro": {"fill": "rgba(157, 207, 235, 0.86)", "line": "#78B6D8", "svg": "#9DCFEB"},
+        "thermal": {"fill": "rgba(244, 180, 180, 0.84)", "line": "#D99090", "svg": "#F4B4B4"},
+        "wind": {"fill": "rgba(177, 221, 190, 0.86)", "line": "#85B998", "svg": "#B1DDBE"},
+        "solar": {"fill": "rgba(248, 221, 148, 0.90)", "line": "#D8B75E", "svg": "#F8DD94"},
+    }[source_key]
+
+
+def panel2_source_label(source_key: str, language_code: str) -> str:
+    label_keys = {
+        "hydro": "panel2_hydro",
+        "thermal": "panel2_thermal",
+        "wind": "panel2_wind",
+        "solar": "panel2_solar",
+    }
+    return UI_TEXT[language_code][label_keys[source_key]]
+
+
 def build_power_panel_plotly_chart(
     data: pd.DataFrame,
     granularity: ChartGranularity,
     start_date: date,
     end_date: date,
     language_code: str,
+    source_order: Sequence[str] = SOURCE_KEYS,
+    include_wind_in_duck_curve: bool = True,
 ) -> go.Figure:
     """Monta carga/curva de pato e composição empilhada sobre o mesmo eixo x."""
     figure = go.Figure()
@@ -1671,8 +1715,12 @@ def build_power_panel_plotly_chart(
         if granularity == "monthly"
         else "%{x|%Y}<br>%{y:,.2f} MWmed<extra>%{fullData.name}</extra>"
     )
+    duck_label_key = (
+        "panel2_duck_curve"
+        if include_wind_in_duck_curve
+        else "panel2_duck_curve_solar"
+    )
 
-    # Gráfico superior: carga e carga líquida após eólica e solar.
     figure.add_trace(
         go.Scatter(
             x=x_values,
@@ -1681,7 +1729,7 @@ def build_power_panel_plotly_chart(
             yaxis="y",
             mode="lines",
             name=UI_TEXT[language_code]["panel2_load"],
-            line={"color": "#17383b", "width": 2.6},
+            line={"color": "#526D82", "width": 2.6},
             hovertemplate=hover_template,
         )
     )
@@ -1692,20 +1740,16 @@ def build_power_panel_plotly_chart(
             xaxis="x",
             yaxis="y",
             mode="lines",
-            name=UI_TEXT[language_code]["panel2_duck_curve"],
-            line={"color": "#d97904", "width": 2.4},
+            name=UI_TEXT[language_code][duck_label_key],
+            line={"color": "#C9936B", "width": 2.4},
             hovertemplate=hover_template,
         )
     )
 
-    # Gráfico inferior: quatro fontes empilhadas e carga como linha de referência.
-    components = (
-        (HYDRO_COLUMN, "panel2_hydro", "#2878b5"),
-        (THERMAL_COLUMN, "panel2_thermal", "#c84444"),
-        (WIND_COLUMN, "panel2_wind", "#3b9b62"),
-        (SOLAR_COLUMN, "panel2_solar", "#e6ad27"),
-    )
-    for column, label_key, color in components:
+    normalized_order = normalize_source_order(source_order)
+    for source_key in normalized_order:
+        column = SOURCE_COLUMN_BY_KEY[source_key]
+        style = panel2_component_style(source_key)
         figure.add_trace(
             go.Scatter(
                 x=x_values,
@@ -1713,9 +1757,9 @@ def build_power_panel_plotly_chart(
                 xaxis="x",
                 yaxis="y2",
                 mode="lines",
-                name=UI_TEXT[language_code][label_key],
-                line={"color": color, "width": 0.8},
-                fillcolor=color,
+                name=panel2_source_label(source_key, language_code),
+                line={"color": style["line"], "width": 0.9},
+                fillcolor=style["fill"],
                 stackgroup="generation",
                 hovertemplate=hover_template,
             )
@@ -1728,7 +1772,7 @@ def build_power_panel_plotly_chart(
             yaxis="y2",
             mode="lines",
             name=UI_TEXT[language_code]["panel2_load"],
-            line={"color": "#111827", "width": 2.0},
+            line={"color": "#455A64", "width": 2.0},
             hovertemplate=hover_template,
             showlegend=False,
         )
@@ -1794,7 +1838,7 @@ def build_power_panel_plotly_chart(
             },
         ],
         height=690,
-        margin={"l": 24, "r": 14, "t": 70, "b": 44},
+        margin={"l": 24, "r": 14, "t": 70, "b": 52},
         paper_bgcolor="#ffffff",
         plot_bgcolor="#ffffff",
         hovermode="x",
@@ -1813,6 +1857,176 @@ def build_power_panel_plotly_chart(
         font={"family": "Arial, sans-serif", "color": "#17383b"},
     )
     return figure
+
+
+def power_panel_svg(
+    data: pd.DataFrame,
+    granularity: ChartGranularity,
+    start_date: date,
+    end_date: date,
+    subsystem_label: str,
+    language_code: str,
+    source_order: Sequence[str],
+    include_wind_in_duck_curve: bool,
+) -> bytes:
+    """Exporta os dois gráficos do Painel 2 em um único SVG vetorial."""
+    if data.empty:
+        raise ValueError("Não há dados para exportar o Painel 2.")
+
+    frame = data.copy().sort_values(PERIOD_COLUMN, kind="stable")
+    frame[PERIOD_COLUMN] = pd.to_datetime(frame[PERIOD_COLUMN], errors="coerce")
+    frame = frame.dropna(subset=[PERIOD_COLUMN])
+    axis_start = pd.Timestamp(start_date)
+    axis_end = pd.Timestamp(end_date) + (
+        pd.Timedelta(hours=23, minutes=59) if granularity == "hourly" else pd.Timedelta(0)
+    )
+    if axis_end <= axis_start:
+        axis_end = axis_start + pd.Timedelta(days=1)
+    ticks = svg_time_ticks(axis_start, axis_end, granularity)
+    width = svg_canvas_width(len(ticks))
+    height = 760
+    left, right = 105, 34
+    top_plot_top, top_plot_height = 105, 235
+    bottom_plot_top, bottom_plot_height = 430, 235
+    plot_width = width - left - right
+    axis_seconds = max((axis_end - axis_start).total_seconds(), 1.0)
+
+    def x_pos(value: pd.Timestamp) -> float:
+        ratio = (pd.Timestamp(value) - axis_start).total_seconds() / axis_seconds
+        return left + max(0.0, min(1.0, ratio)) * plot_width
+
+    def scale_bounds(values: list[float], include_zero: bool = False) -> tuple[float, float]:
+        low, high = min(values), max(values)
+        if include_zero:
+            low = min(0.0, low)
+        if math.isclose(low, high):
+            padding = max(abs(low) * 0.08, 1.0)
+        else:
+            padding = (high - low) * 0.08
+        return low - padding, high + padding
+
+    load_values = frame[LOAD_COLUMN].astype(float).tolist()
+    duck_values = frame[DUCK_CURVE_COLUMN].astype(float).tolist()
+    dates = frame[PERIOD_COLUMN].tolist()
+    top_min, top_max = scale_bounds(load_values + duck_values)
+    normalized_order = normalize_source_order(source_order)
+    cumulative = pd.Series(0.0, index=frame.index)
+    cumulative_layers: list[tuple[str, pd.Series, pd.Series]] = []
+    for source_key in normalized_order:
+        previous = cumulative.copy()
+        cumulative = cumulative + frame[SOURCE_COLUMN_BY_KEY[source_key]].astype(float)
+        cumulative_layers.append((source_key, previous, cumulative.copy()))
+    bottom_max = max(float(cumulative.max()), max(load_values), 1.0) * 1.08
+
+    def y_top(value: float) -> float:
+        return top_plot_top + (top_max - value) * top_plot_height / (top_max - top_min)
+
+    def y_bottom(value: float) -> float:
+        return bottom_plot_top + (bottom_max - value) * bottom_plot_height / bottom_max
+
+    nodes: list[str] = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+        '<rect width="100%" height="100%" rx="16" fill="#ffffff"/>',
+        f'<text x="{left}" y="31" font-family="Arial, sans-serif" font-size="21" font-weight="700" fill="#17383b">{html.escape(UI_TEXT[language_code]["panel2_title"])}</text>',
+        f'<text x="{left}" y="55" font-family="Arial, sans-serif" font-size="13" fill="#637477">{html.escape(subsystem_label)} · {html.escape(GRANULARITY_LABELS[language_code][granularity])} · {start_date:%d/%m/%Y} a {end_date:%d/%m/%Y}</text>',
+        f'<text x="{left}" y="91" font-family="Arial, sans-serif" font-size="16" font-weight="700" fill="#17383b">{html.escape(UI_TEXT[language_code]["panel2_duck_title"])}</text>',
+        f'<text x="{left}" y="416" font-family="Arial, sans-serif" font-size="16" font-weight="700" fill="#17383b">{html.escape(UI_TEXT[language_code]["panel2_stack_title"])}</text>',
+    ]
+
+    # Grades e eixos Y.
+    for index in range(4):
+        top_tick = top_min + index * (top_max - top_min) / 3
+        y = y_top(top_tick)
+        nodes.extend([
+            f'<line x1="{left}" y1="{y:.2f}" x2="{width-right}" y2="{y:.2f}" stroke="#dfe8e9"/>',
+            f'<text x="{left-12}" y="{y+4:.2f}" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#526164">{html.escape(compact_number(top_tick))}</text>',
+        ])
+        bottom_tick = index * bottom_max / 3
+        y2 = y_bottom(bottom_tick)
+        nodes.extend([
+            f'<line x1="{left}" y1="{y2:.2f}" x2="{width-right}" y2="{y2:.2f}" stroke="#dfe8e9"/>',
+            f'<text x="{left-12}" y="{y2+4:.2f}" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#526164">{html.escape(compact_number(bottom_tick))}</text>',
+        ])
+    for tick_value, _ in ticks:
+        x = x_pos(tick_value)
+        nodes.extend([
+            f'<line x1="{x:.2f}" y1="{top_plot_top}" x2="{x:.2f}" y2="{top_plot_top+top_plot_height}" stroke="#eef3f4"/>',
+            f'<line x1="{x:.2f}" y1="{bottom_plot_top}" x2="{x:.2f}" y2="{bottom_plot_top+bottom_plot_height}" stroke="#eef3f4"/>',
+        ])
+
+    # Curvas superiores.
+    load_path = " ".join(
+        f'{"M" if i == 0 else "L"} {x_pos(d):.2f} {y_top(v):.2f}'
+        for i, (d, v) in enumerate(zip(dates, load_values))
+    )
+    duck_path = " ".join(
+        f'{"M" if i == 0 else "L"} {x_pos(d):.2f} {y_top(v):.2f}'
+        for i, (d, v) in enumerate(zip(dates, duck_values))
+    )
+    nodes.extend([
+        f'<path d="{load_path}" fill="none" stroke="#526D82" stroke-width="2.8" stroke-linejoin="round"/>',
+        f'<path d="{duck_path}" fill="none" stroke="#C9936B" stroke-width="2.7" stroke-linejoin="round"/>',
+    ])
+
+    # Áreas empilhadas na ordem escolhida.
+    for source_key, lower, upper in cumulative_layers:
+        upper_points = [f'{x_pos(d):.2f},{y_bottom(float(v)):.2f}' for d, v in zip(dates, upper)]
+        lower_points = [f'{x_pos(d):.2f},{y_bottom(float(v)):.2f}' for d, v in reversed(list(zip(dates, lower)))]
+        polygon = " ".join(upper_points + lower_points)
+        style = panel2_component_style(source_key)
+        nodes.append(
+            f'<polygon points="{polygon}" fill="{style["svg"]}" fill-opacity="0.90" stroke="{style["line"]}" stroke-width="0.8"/>'
+        )
+    bottom_load_path = " ".join(
+        f'{"M" if i == 0 else "L"} {x_pos(d):.2f} {y_bottom(v):.2f}'
+        for i, (d, v) in enumerate(zip(dates, load_values))
+    )
+    nodes.append(f'<path d="{bottom_load_path}" fill="none" stroke="#455A64" stroke-width="2.4"/>')
+
+    # Legendas.
+    duck_key = "panel2_duck_curve" if include_wind_in_duck_curve else "panel2_duck_curve_solar"
+    legend_items = [
+        (UI_TEXT[language_code]["panel2_load"], "#526D82"),
+        (UI_TEXT[language_code][duck_key], "#C9936B"),
+    ]
+    legend_x = left
+    for label, color in legend_items:
+        nodes.extend([
+            f'<line x1="{legend_x}" y1="72" x2="{legend_x+22}" y2="72" stroke="{color}" stroke-width="4"/>',
+            f'<text x="{legend_x+29}" y="76" font-family="Arial, sans-serif" font-size="12" fill="#526164">{html.escape(label)}</text>',
+        ])
+        legend_x += 36 + len(label) * 7
+    legend_x = left
+    for source_key in normalized_order:
+        style = panel2_component_style(source_key)
+        label = panel2_source_label(source_key, language_code)
+        nodes.extend([
+            f'<rect x="{legend_x}" y="390" width="18" height="11" rx="2" fill="{style["svg"]}"/>',
+            f'<text x="{legend_x+24}" y="400" font-family="Arial, sans-serif" font-size="12" fill="#526164">{html.escape(label)}</text>',
+        ])
+        legend_x += 38 + len(label) * 7
+
+    # Eixos e rótulos temporais.
+    for top_value, height_value in ((top_plot_top, top_plot_height), (bottom_plot_top, bottom_plot_height)):
+        nodes.extend([
+            f'<line x1="{left}" y1="{top_value}" x2="{left}" y2="{top_value+height_value}" stroke="#526164" stroke-width="1.2"/>',
+            f'<line x1="{left}" y1="{top_value+height_value}" x2="{width-right}" y2="{top_value+height_value}" stroke="#526164" stroke-width="1.2"/>',
+        ])
+    rotate = len(ticks) > 16
+    label_y = bottom_plot_top + bottom_plot_height + 25
+    for tick_value, tick_label in ticks:
+        x = x_pos(tick_value)
+        if rotate:
+            nodes.append(f'<text x="{x:.2f}" y="{label_y}" text-anchor="end" transform="rotate(-45 {x:.2f} {label_y})" font-family="Arial, sans-serif" font-size="12" fill="#526164">{html.escape(tick_label)}</text>')
+        else:
+            nodes.append(f'<text x="{x:.2f}" y="{label_y}" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#526164">{html.escape(tick_label)}</text>')
+    axis_label = html.escape(UI_TEXT[language_code]["panel2_axis"])
+    nodes.extend([
+        f'<text x="22" y="{top_plot_top+top_plot_height/2}" transform="rotate(-90 22 {top_plot_top+top_plot_height/2})" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#526164">{axis_label}</text>',
+        f'<text x="22" y="{bottom_plot_top+bottom_plot_height/2}" transform="rotate(-90 22 {bottom_plot_top+bottom_plot_height/2})" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#526164">{axis_label}</text>',
+        '</svg>',
+    ])
+    return "".join(nodes).encode("utf-8")
 
 
 def render_chart_controls_and_exports(
@@ -2822,6 +3036,38 @@ with st.container(border=True, key="charts_panel"):
                             format_func=lambda value: GRANULARITY_LABELS[language][value],
                         )
 
+                    panel2_include_wind = st.toggle(
+                        ui_text("panel2_include_wind"),
+                        value=True,
+                        key="panel2_include_wind_value",
+                    )
+                    st.markdown(f"**{ui_text('panel2_order_title')}**")
+                    st.caption(ui_text("panel2_order_copy"))
+                    order_state_keys = [f"panel2_order_{index}" for index in range(1, 5)]
+                    stored_order = normalize_source_order(
+                        st.session_state.get(state_key, SOURCE_KEYS[index])
+                        for index, state_key in enumerate(order_state_keys)
+                    )
+                    for state_key, source_key in zip(order_state_keys, stored_order):
+                        st.session_state[state_key] = source_key
+                    selected_order: list[str] = []
+                    order_columns = st.columns(2, gap="small")
+                    for index, state_key in enumerate(order_state_keys):
+                        available_options = [
+                            source_key
+                            for source_key in SOURCE_KEYS
+                            if source_key not in selected_order
+                        ]
+                        with order_columns[index % 2]:
+                            selected_source = st.selectbox(
+                                ui_text(f"panel2_order_{index + 1}"),
+                                options=available_options,
+                                key=state_key,
+                                format_func=lambda value: panel2_source_label(value, language),
+                            )
+                        selected_order.append(selected_source)
+                    panel2_source_order = normalize_source_order(selected_order)
+
                     panel2_balance_data = source_data_for_subsystem(
                         results,
                         "BALANCO",
@@ -2896,12 +3142,43 @@ with st.container(border=True, key="charts_panel"):
                                 start_date=panel2_start,
                                 end_date=panel2_end,
                             )
-                            panel2_data = prepare_power_panel_data(panel2_summary)
+                            panel2_data = prepare_power_panel_data(
+                                panel2_summary,
+                                include_wind_in_duck_curve=panel2_include_wind,
+                            )
                             panel2_ready = not panel2_data.empty
 
-                    st.info(ui_text("panel2_definition"), icon="ℹ️")
+                    definition_key = (
+                        "panel2_definition"
+                        if panel2_include_wind
+                        else "panel2_definition_solar"
+                    )
+                    st.info(ui_text(definition_key), icon="ℹ️")
                     if panel2_ready and material_balance_difference(panel2_data):
                         st.caption(ui_text("panel2_balance_note"))
+                    if panel2_ready and panel2_start and panel2_end:
+                        panel2_svg = power_panel_svg(
+                            panel2_data,
+                            granularity=panel2_granularity,
+                            start_date=panel2_start,
+                            end_date=panel2_end,
+                            subsystem_label=panel2_subsystem_labels[panel2_subsystem_key],
+                            language_code=language,
+                            source_order=panel2_source_order,
+                            include_wind_in_duck_curve=panel2_include_wind,
+                        )
+                        st.download_button(
+                            ui_text("panel2_download_svg"),
+                            data=panel2_svg,
+                            file_name=(
+                                f"painel_2_{subsystem_slug(panel2_subsystem_key)}_"
+                                f"{GRANULARITY_SLUGS[panel2_granularity]}_"
+                                f"{panel2_start:%Y%m%d}-{panel2_end:%Y%m%d}.svg"
+                            ),
+                            mime="image/svg+xml",
+                            width="stretch",
+                            key="panel2_download_svg_button",
+                        )
 
             with panel2_columns[1]:
                 with st.container(border=True, key="panel2_chart_card"):
@@ -2912,6 +3189,8 @@ with st.container(border=True, key="charts_panel"):
                             start_date=panel2_start,
                             end_date=panel2_end,
                             language_code=language,
+                            source_order=panel2_source_order,
+                            include_wind_in_duck_curve=panel2_include_wind,
                         )
                         st.plotly_chart(
                             panel2_figure,

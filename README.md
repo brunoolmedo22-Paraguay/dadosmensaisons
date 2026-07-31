@@ -15,12 +15,12 @@ Aplicação Streamlit unificada para baixar e analisar três bases oficiais do O
 5. Visualize os dados em uma única tabela com vírgula decimal e baixe um único CSV no padrão regional: separador `;` entre colunas e decimal `,`. As colunas auxiliares de cobertura e status permanecem na tabela, mas não são exportadas.
 6. No **Painel de gráficos**, navegue por abas:
    - **Painel 1**: exploração independente de Balanço, EAR e ENA, com seleção de grandeza e exportação SVG;
-   - **Painel 2**: carga e curva de pato (`Carga − Eólica − Solar`) e composição empilhada da carga por geração hidráulica, térmica, eólica e solar.
+   - **Painel 2**: carga e curva de pato configurável (`Carga − Solar` ou `Carga − Eólica − Solar`) e composição empilhada com ordem livre das fontes hidráulica, térmica, eólica e solar. O painel usa cores pastel e pode ser exportado em SVG.
 7. Consulte **Arquivos processados** no último painel da página.
 
 A tabela e o CSV continuam em discretização diária, mensal ou anual. O painel de gráficos também oferece a opção **horária**, aplicada exclusivamente ao Balanço, que possui série nessa resolução. Ao selecionar a visualização horária, os cartões de EAR e ENA não são exibidos.
 
-A configuração dos gráficos é separada da configuração da tabela. Alterar um gráfico não refaz o download e não modifica o CSV: a visualização é recalculada a partir dos dados que já estão na sessão. O Painel 1 mantém a configuração à esquerda e as curvas sincronizadas à direita. O Painel 2 possui estado próprio de subsistema, discretização e datas; no gráfico de composição, a linha da carga permanece sobre as quatro áreas empilhadas. Para subsistemas individuais, diferenças entre a carga e a soma das fontes podem refletir o intercâmbio.
+A configuração dos gráficos é separada da configuração da tabela. Alterar um gráfico não refaz o download e não modifica o CSV: a visualização é recalculada a partir dos dados que já estão na sessão. O Painel 1 mantém a configuração à esquerda e as curvas sincronizadas à direita. O Painel 2 possui estado próprio de subsistema, discretização e datas; permite escolher a ordem das quatro áreas empilhadas, incluir ou excluir a eólica da curva de pato e baixar a composição em SVG. Na discretização horária, o eixo temporal mostra também as horas. No gráfico de composição, a linha da carga permanece sobre as áreas empilhadas. Para subsistemas individuais, diferenças entre a carga e a soma das fontes podem refletir o intercâmbio.
 
 ### Grandezas de ENA
 

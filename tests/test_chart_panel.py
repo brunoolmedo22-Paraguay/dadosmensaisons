@@ -253,3 +253,18 @@ def test_power_panel_uses_balance_only_and_has_independent_state() -> None:
     assert 'key="panel2_granularity_value"' in source
     assert 'panel2_start_key = f"panel2_start_{panel2_granularity}"' in source
     assert 'panel2_end_key = f"panel2_end_{panel2_granularity}"' in source
+
+
+def test_panel2_has_pastel_order_duck_toggle_hour_axis_and_svg() -> None:
+    source = APP_PATH.read_text(encoding="utf-8")
+    assert 'panel2_include_wind = st.toggle(' in source
+    assert 'panel2_order_title' in source
+    assert 'panel2_order_1' in source
+    assert 'source_order=panel2_source_order' in source
+    assert '#9DCFEB' in source
+    assert '#F4B4B4' in source
+    assert '#B1DDBE' in source
+    assert '#F8DD94' in source
+    assert '"tickformat": "%d/%m\\n%Hh"' in source
+    assert 'power_panel_svg(' in source
+    assert 'ui_text("panel2_download_svg")' in source
