@@ -232,3 +232,24 @@ class SvgChartTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_power_panel_tabs_and_charts_are_present() -> None:
+    source = APP_PATH.read_text(encoding="utf-8")
+    assert 'st.tabs(' in source
+    assert 'ui_text("chart_tab_1")' in source
+    assert 'ui_text("chart_tab_2")' in source
+    assert 'build_power_panel_plotly_chart(' in source
+    assert 'stackgroup="generation"' in source
+    assert 'y=data[DUCK_CURVE_COLUMN]' in source
+    assert 'y=data[LOAD_COLUMN]' in source
+    assert 'hoversubplots="axis"' in source
+
+
+def test_power_panel_uses_balance_only_and_has_independent_state() -> None:
+    source = APP_PATH.read_text(encoding="utf-8")
+    assert 'if "BALANCO" not in usable_sources' in source
+    assert 'key="panel2_subsystem_value"' in source
+    assert 'key="panel2_granularity_value"' in source
+    assert 'panel2_start_key = f"panel2_start_{panel2_granularity}"' in source
+    assert 'panel2_end_key = f"panel2_end_{panel2_granularity}"' in source

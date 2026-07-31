@@ -13,12 +13,14 @@ Aplicação Streamlit unificada para baixar e analisar três bases oficiais do O
 3. No seletor segmentado entre o painel de período e o painel de resultados, marque **Balanço**, **EAR**, **ENA** ou qualquer combinação entre elas.
 4. Escolha o subsistema e a discretização: **diária**, **mensal** ou **anual**.
 5. Visualize os dados em uma única tabela com vírgula decimal e baixe um único CSV no padrão regional: separador `;` entre colunas e decimal `,`. As colunas auxiliares de cobertura e status permanecem na tabela, mas não são exportadas.
-6. No **Painel de gráficos**, escolha de forma independente o subsistema, a discretização e o intervalo. A aplicação mostra um gráfico para cada base compatível marcada no seletor superior e oferece download individual em SVG.
+6. No **Painel de gráficos**, navegue por abas:
+   - **Painel 1**: exploração independente de Balanço, EAR e ENA, com seleção de grandeza e exportação SVG;
+   - **Painel 2**: carga e curva de pato (`Carga − Eólica − Solar`) e composição empilhada da carga por geração hidráulica, térmica, eólica e solar.
 7. Consulte **Arquivos processados** no último painel da página.
 
 A tabela e o CSV continuam em discretização diária, mensal ou anual. O painel de gráficos também oferece a opção **horária**, aplicada exclusivamente ao Balanço, que possui série nessa resolução. Ao selecionar a visualização horária, os cartões de EAR e ENA não são exibidos.
 
-A configuração dos gráficos é separada da configuração da tabela. Alterar um gráfico não refaz o download e não modifica o CSV: a visualização é recalculada a partir dos dados que já estão na sessão. O arranjo compacto é uma grade 2 × 2, com a configuração na primeira célula e até três gráficos — Balanço, EAR e ENA — nas demais. Em cada cartão, o seletor de grandeza e o botão de download SVG ficam na mesma linha.
+A configuração dos gráficos é separada da configuração da tabela. Alterar um gráfico não refaz o download e não modifica o CSV: a visualização é recalculada a partir dos dados que já estão na sessão. O Painel 1 mantém a configuração à esquerda e as curvas sincronizadas à direita. O Painel 2 possui estado próprio de subsistema, discretização e datas; no gráfico de composição, a linha da carga permanece sobre as quatro áreas empilhadas. Para subsistemas individuais, diferenças entre a carga e a soma das fontes podem refletir o intercâmbio.
 
 ### Grandezas de ENA
 
@@ -47,3 +49,4 @@ streamlit run app.py
 - `ena_download.py`: download da ENA com preferência por Parquet e fallback automático para CSV;
 - `unified_ons.py`: junção temporal, tabela e CSV unificados;
 - `parallel_ons.py`: orquestração concorrente e isolada das três bases, com eventos de progresso entregues à thread principal do Streamlit.
+- `power_panel.py`: preparação da curva de pato e da composição de geração exibidas no Painel 2.

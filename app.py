@@ -22,6 +22,20 @@ import ena_processing as _ena
 import ons_download as _balance_download
 import unified_ons as _unified
 from parallel_ons import ProgressEvent, SourceSpec, run_parallel_sources
+from power_panel import (
+    BALANCE_DIFFERENCE_COLUMN,
+    DUCK_CURVE_COLUMN,
+    GENERATION_COLUMNS,
+    HYDRO_COLUMN,
+    LOAD_COLUMN,
+    PERIOD_COLUMN,
+    SOLAR_COLUMN,
+    THERMAL_COLUMN,
+    TOTAL_GENERATION_COLUMN,
+    WIND_COLUMN,
+    material_balance_difference,
+    prepare_power_panel_data,
+)
 
 
 Granularity = _unified.Granularity
@@ -219,6 +233,34 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "chart_source_title": "{source} · {metric}",
         "chart_axis_value": "Valor",
         "charts_need_valid_dates": "Corrija o intervalo para gerar os gráficos.",
+        "chart_tab_1": "PAINEL 1",
+        "chart_tab_2": "PAINEL 2",
+        "panel2_title": "Carga, curva de pato e composição por fonte",
+        "panel2_copy": (
+            "Analise a carga líquida após eólica e solar e compare a carga com a "
+            "composição da geração hidráulica, térmica, eólica e solar."
+        ),
+        "panel2_requires_balance": (
+            "Selecione Balanço no seletor de bases para utilizar este painel."
+        ),
+        "panel2_duck_title": "Carga e curva de pato",
+        "panel2_stack_title": "Composição da carga por fonte",
+        "panel2_duck_curve": "Curva de pato (Carga − Eólica − Solar)",
+        "panel2_load": "Carga",
+        "panel2_hydro": "Hidráulica",
+        "panel2_thermal": "Térmica",
+        "panel2_wind": "Eólica",
+        "panel2_solar": "Solar",
+        "panel2_axis": "Potência média (MWmed)",
+        "panel2_definition": (
+            "Curva de pato = Carga − Geração eólica − Geração solar."
+        ),
+        "panel2_balance_note": (
+            "A linha da carga é mantida sobre as áreas empilhadas. Para subsistemas, "
+            "diferenças entre a carga e a soma das quatro fontes refletem principalmente "
+            "o intercâmbio e ajustes do balanço."
+        ),
+        "panel2_download_svg": "Baixar Painel 2 em SVG",
         "processed_kicker": "Rastreabilidade",
         "processed_copy": "Relação dos arquivos anuais efetivamente utilizados no processamento.",
         "sin_ena_calculated_label": "SIN · ENA calculada",
@@ -333,6 +375,34 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "chart_source_title": "{source} · {metric}",
         "chart_axis_value": "Valor",
         "charts_need_valid_dates": "Corrija el intervalo para generar los gráficos.",
+        "chart_tab_1": "PANEL 1",
+        "chart_tab_2": "PANEL 2",
+        "panel2_title": "Carga, curva de pato y composición por fuente",
+        "panel2_copy": (
+            "Analice la carga neta después de eólica y solar y compare la carga con la "
+            "composición de la generación hidráulica, térmica, eólica y solar."
+        ),
+        "panel2_requires_balance": (
+            "Seleccione Balance en el selector de bases para utilizar este panel."
+        ),
+        "panel2_duck_title": "Carga y curva de pato",
+        "panel2_stack_title": "Composición de la carga por fuente",
+        "panel2_duck_curve": "Curva de pato (Carga − Eólica − Solar)",
+        "panel2_load": "Carga",
+        "panel2_hydro": "Hidráulica",
+        "panel2_thermal": "Térmica",
+        "panel2_wind": "Eólica",
+        "panel2_solar": "Solar",
+        "panel2_axis": "Potencia media (MWmed)",
+        "panel2_definition": (
+            "Curva de pato = Carga − Generación eólica − Generación solar."
+        ),
+        "panel2_balance_note": (
+            "La línea de carga se mantiene sobre las áreas apiladas. Para subsistemas, "
+            "las diferencias entre la carga y la suma de las cuatro fuentes reflejan "
+            "principalmente el intercambio y los ajustes del balance."
+        ),
+        "panel2_download_svg": "Descargar Panel 2 en SVG",
         "processed_kicker": "Trazabilidad",
         "processed_copy": "Relación de los archivos anuales utilizados efectivamente en el procesamiento.",
         "sin_ena_calculated_label": "SIN · ENA calculada",
@@ -769,6 +839,32 @@ st.markdown(
         .st-key-charts_panel [data-testid="stCaptionContainer"] {
             margin-bottom: .18rem;
         }
+        .st-key-charts_panel [data-baseweb="tab-list"] {
+            gap: 0;
+            margin: .2rem 0 .65rem;
+            border-bottom: 1px solid color-mix(in srgb, var(--text-color) 15%, transparent);
+        }
+        .st-key-charts_panel button[data-baseweb="tab"] {
+            min-width: 10rem;
+            height: 2.35rem;
+            padding: .25rem 1.15rem;
+            border: 1px solid color-mix(in srgb, var(--text-color) 14%, transparent);
+            border-bottom: none;
+            border-radius: 8px 8px 0 0;
+            background: color-mix(in srgb, var(--secondary-background-color) 92%, var(--background-color));
+            color: var(--muted);
+            font-size: .82rem;
+            font-weight: 700;
+            letter-spacing: .035em;
+        }
+        .st-key-charts_panel button[data-baseweb="tab"][aria-selected="true"] {
+            background: var(--surface);
+            color: var(--ink);
+            box-shadow: inset 0 3px 0 var(--brand);
+        }
+        .st-key-charts_panel [data-baseweb="tab-highlight"] {
+            display: none;
+        }
         .st-key-chart_config_card,
         .st-key-chart_stack_card,
         [class*="st-key-chart_control_"] {
@@ -794,6 +890,22 @@ st.markdown(
         }
         .st-key-chart_stack_card {
             padding: .38rem .42rem .25rem;
+        }
+        .st-key-panel2_config_card,
+        .st-key-panel2_chart_card {
+            background: color-mix(
+                in srgb,
+                var(--secondary-background-color) 84%,
+                var(--background-color)
+            );
+            border: none !important;
+            border-radius: 14px;
+            padding: .58rem .66rem .64rem;
+            box-shadow: none;
+        }
+        .st-key-panel2_config_card [data-testid="stVerticalBlock"],
+        .st-key-panel2_chart_card [data-testid="stVerticalBlock"] {
+            gap: .38rem;
         }
         .st-key-combined_chart_figure {
             margin-top: -.2rem;
@@ -1540,6 +1652,169 @@ def build_combined_plotly_chart(
     return figure
 
 
+def build_power_panel_plotly_chart(
+    data: pd.DataFrame,
+    granularity: ChartGranularity,
+    start_date: date,
+    end_date: date,
+    language_code: str,
+) -> go.Figure:
+    """Monta carga/curva de pato e composição empilhada sobre o mesmo eixo x."""
+    figure = go.Figure()
+    x_values = data[PERIOD_COLUMN]
+    hover_template = (
+        "%{x|%d/%m/%Y %H:%M}<br>%{y:,.2f} MWmed<extra>%{fullData.name}</extra>"
+        if granularity == "hourly"
+        else "%{x|%d/%m/%Y}<br>%{y:,.2f} MWmed<extra>%{fullData.name}</extra>"
+        if granularity == "daily"
+        else "%{x|%m/%Y}<br>%{y:,.2f} MWmed<extra>%{fullData.name}</extra>"
+        if granularity == "monthly"
+        else "%{x|%Y}<br>%{y:,.2f} MWmed<extra>%{fullData.name}</extra>"
+    )
+
+    # Gráfico superior: carga e carga líquida após eólica e solar.
+    figure.add_trace(
+        go.Scatter(
+            x=x_values,
+            y=data[LOAD_COLUMN],
+            xaxis="x",
+            yaxis="y",
+            mode="lines",
+            name=UI_TEXT[language_code]["panel2_load"],
+            line={"color": "#17383b", "width": 2.6},
+            hovertemplate=hover_template,
+        )
+    )
+    figure.add_trace(
+        go.Scatter(
+            x=x_values,
+            y=data[DUCK_CURVE_COLUMN],
+            xaxis="x",
+            yaxis="y",
+            mode="lines",
+            name=UI_TEXT[language_code]["panel2_duck_curve"],
+            line={"color": "#d97904", "width": 2.4},
+            hovertemplate=hover_template,
+        )
+    )
+
+    # Gráfico inferior: quatro fontes empilhadas e carga como linha de referência.
+    components = (
+        (HYDRO_COLUMN, "panel2_hydro", "#2878b5"),
+        (THERMAL_COLUMN, "panel2_thermal", "#c84444"),
+        (WIND_COLUMN, "panel2_wind", "#3b9b62"),
+        (SOLAR_COLUMN, "panel2_solar", "#e6ad27"),
+    )
+    for column, label_key, color in components:
+        figure.add_trace(
+            go.Scatter(
+                x=x_values,
+                y=data[column],
+                xaxis="x",
+                yaxis="y2",
+                mode="lines",
+                name=UI_TEXT[language_code][label_key],
+                line={"color": color, "width": 0.8},
+                fillcolor=color,
+                stackgroup="generation",
+                hovertemplate=hover_template,
+            )
+        )
+    figure.add_trace(
+        go.Scatter(
+            x=x_values,
+            y=data[LOAD_COLUMN],
+            xaxis="x",
+            yaxis="y2",
+            mode="lines",
+            name=UI_TEXT[language_code]["panel2_load"],
+            line={"color": "#111827", "width": 2.0},
+            hovertemplate=hover_template,
+            showlegend=False,
+        )
+    )
+
+    tick_config = chart_tick_configuration(granularity, start_date, end_date)
+    figure.update_layout(
+        xaxis={
+            "domain": [0.0, 1.0],
+            "anchor": "free",
+            "position": 0.0,
+            "side": "bottom",
+            "showgrid": True,
+            "gridcolor": "#eef3f4",
+            "showline": True,
+            "linecolor": "#a5b6b8",
+            "tickfont": {"size": 11, "color": "#526164"},
+            "showspikes": True,
+            "spikemode": "across",
+            "spikesnap": "cursor",
+            "spikethickness": 1.2,
+            "spikecolor": "#647b7d",
+            **tick_config,
+        },
+        yaxis={
+            "domain": [0.55, 1.0],
+            "anchor": "x",
+            "title": {"text": UI_TEXT[language_code]["panel2_axis"]},
+            "gridcolor": "#dde7e8",
+            "zeroline": False,
+            "showline": True,
+            "linecolor": "#a5b6b8",
+        },
+        yaxis2={
+            "domain": [0.0, 0.45],
+            "anchor": "x",
+            "title": {"text": UI_TEXT[language_code]["panel2_axis"]},
+            "gridcolor": "#dde7e8",
+            "zeroline": False,
+            "showline": True,
+            "linecolor": "#a5b6b8",
+        },
+        annotations=[
+            {
+                "text": UI_TEXT[language_code]["panel2_duck_title"],
+                "xref": "paper",
+                "yref": "paper",
+                "x": 0.0,
+                "y": 1.03,
+                "xanchor": "left",
+                "showarrow": False,
+                "font": {"size": 15, "color": "#17383b"},
+            },
+            {
+                "text": UI_TEXT[language_code]["panel2_stack_title"],
+                "xref": "paper",
+                "yref": "paper",
+                "x": 0.0,
+                "y": 0.48,
+                "xanchor": "left",
+                "showarrow": False,
+                "font": {"size": 15, "color": "#17383b"},
+            },
+        ],
+        height=690,
+        margin={"l": 24, "r": 14, "t": 70, "b": 44},
+        paper_bgcolor="#ffffff",
+        plot_bgcolor="#ffffff",
+        hovermode="x",
+        hoversubplots="axis",
+        hoverdistance=-1,
+        spikedistance=-1,
+        dragmode="pan",
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.08,
+            "xanchor": "left",
+            "x": 0.0,
+            "font": {"size": 11},
+        },
+        font={"family": "Arial, sans-serif", "color": "#17383b"},
+    )
+    return figure
+
+
 def render_chart_controls_and_exports(
     chart_specs: list[dict[str, Any]],
     subsystem_key: str,
@@ -1952,11 +2227,21 @@ if download_clicked:
         "chart_end_monthly",
         "chart_start_yearly",
         "chart_end_yearly",
+        "panel2_subsystem_value",
+        "panel2_granularity_value",
+        "panel2_start_hourly",
+        "panel2_end_hourly",
+        "panel2_start_daily",
+        "panel2_end_daily",
+        "panel2_start_monthly",
+        "panel2_end_monthly",
+        "panel2_start_yearly",
+        "panel2_end_yearly",
     ]:
         st.session_state.pop(state_key, None)
     # Remove também chaves dinâmicas de versões anteriores da plataforma.
     for state_key in list(st.session_state):
-        if str(state_key).startswith(("analysis_start_", "analysis_end_", "chart_start_", "chart_end_")):
+        if str(state_key).startswith(("analysis_start_", "analysis_end_", "chart_start_", "chart_end_", "panel2_start_", "panel2_end_")):
             st.session_state.pop(state_key, None)
 
     downloaded_results, downloaded_bytes, source_errors = obtain_ons_data(
@@ -2296,194 +2581,353 @@ with st.container(border=True, key="charts_panel"):
     st.subheader(ui_text("charts_title"))
     st.caption(ui_text("charts_copy"))
 
-    chart_panel_columns = st.columns([0.95, 1.95], gap="small")
-    chart_ready = False
-    chart_start = None
-    chart_end = None
-    chart_granularity: ChartGranularity = "monthly"
-    chart_subsystem_key = chart_subsystem_keys[0]
-    chart_subsystem_label = chart_subsystem_labels[chart_subsystem_key]
-    chart_sources: list[DataSource] = []
-    chart_specs: list[dict[str, Any]] = []
+    panel_one_tab, panel_two_tab = st.tabs(
+        [ui_text("chart_tab_1"), ui_text("chart_tab_2")]
+    )
 
-    with chart_panel_columns[0]:
-        with st.container(border=True, key="chart_config_card"):
-            st.markdown(
-                f'<div class="panel-kicker">{ui_text("charts_config_title")}</div>',
-                unsafe_allow_html=True,
-            )
-            config_columns = st.columns(2, gap="small")
-            with config_columns[0]:
-                chart_subsystem_key = st.selectbox(
-                    ui_text("subsystem_selector"),
-                    options=chart_subsystem_keys,
-                    index=(
-                        chart_subsystem_keys.index("SIN")
-                        if "SIN" in chart_subsystem_keys
-                        else 0
-                    ),
-                    key="chart_subsystem_value",
-                    format_func=lambda value: chart_subsystem_labels[value],
+    with panel_one_tab:
+        chart_panel_columns = st.columns([0.95, 1.95], gap="small")
+        chart_ready = False
+        chart_start = None
+        chart_end = None
+        chart_granularity: ChartGranularity = "monthly"
+        chart_subsystem_key = chart_subsystem_keys[0]
+        chart_subsystem_label = chart_subsystem_labels[chart_subsystem_key]
+        chart_sources: list[DataSource] = []
+        chart_specs: list[dict[str, Any]] = []
+
+        with chart_panel_columns[0]:
+            with st.container(border=True, key="chart_config_card"):
+                st.markdown(
+                    f'<div class="panel-kicker">{ui_text("charts_config_title")}</div>',
+                    unsafe_allow_html=True,
                 )
-            with config_columns[1]:
-                chart_granularity = st.selectbox(
-                    ui_text("granularity_selector"),
-                    options=CHART_GRANULARITIES,
-                    index=2,
-                    key="chart_granularity_value",
-                    format_func=lambda value: GRANULARITY_LABELS[language][value],
+                config_columns = st.columns(2, gap="small")
+                with config_columns[0]:
+                    chart_subsystem_key = st.selectbox(
+                        ui_text("subsystem_selector"),
+                        options=chart_subsystem_keys,
+                        index=(
+                            chart_subsystem_keys.index("SIN")
+                            if "SIN" in chart_subsystem_keys
+                            else 0
+                        ),
+                        key="chart_subsystem_value",
+                        format_func=lambda value: chart_subsystem_labels[value],
+                    )
+                with config_columns[1]:
+                    chart_granularity = st.selectbox(
+                        ui_text("granularity_selector"),
+                        options=CHART_GRANULARITIES,
+                        index=2,
+                        key="chart_granularity_value",
+                        format_func=lambda value: GRANULARITY_LABELS[language][value],
+                    )
+                chart_subsystem_label = chart_subsystem_labels[chart_subsystem_key]
+
+                chart_sources = (
+                    ["BALANCO"]
+                    if chart_granularity == "hourly" and "BALANCO" in usable_sources
+                    else list(usable_sources)
+                    if chart_granularity != "hourly"
+                    else []
                 )
-            chart_subsystem_label = chart_subsystem_labels[chart_subsystem_key]
 
-            chart_sources = (
-                ["BALANCO"]
-                if chart_granularity == "hourly" and "BALANCO" in usable_sources
-                else list(usable_sources)
-                if chart_granularity != "hourly"
-                else []
-            )
+                chart_balance_data = (
+                    source_data_for_subsystem(results, "BALANCO", chart_subsystem_key)
+                    if "BALANCO" in usable_sources
+                    else pd.DataFrame()
+                )
+                chart_ear_data = (
+                    source_data_for_subsystem(results, "EAR", chart_subsystem_key)
+                    if "EAR" in usable_sources
+                    else pd.DataFrame()
+                )
+                chart_ena_data = (
+                    source_data_for_subsystem(results, "ENA", chart_subsystem_key)
+                    if "ENA" in usable_sources
+                    else pd.DataFrame()
+                )
+                bounds_sources = chart_sources if chart_sources else list(usable_sources)
+                chart_bounds = _unified.source_date_bounds(
+                    chart_balance_data,
+                    chart_ear_data,
+                    bounds_sources,
+                    ena_data=chart_ena_data,
+                )
 
-            chart_balance_data = (
-                source_data_for_subsystem(results, "BALANCO", chart_subsystem_key)
-                if "BALANCO" in usable_sources
-                else pd.DataFrame()
-            )
-            chart_ear_data = (
-                source_data_for_subsystem(results, "EAR", chart_subsystem_key)
-                if "EAR" in usable_sources
-                else pd.DataFrame()
-            )
-            chart_ena_data = (
-                source_data_for_subsystem(results, "ENA", chart_subsystem_key)
-                if "ENA" in usable_sources
-                else pd.DataFrame()
-            )
-            bounds_sources = chart_sources if chart_sources else list(usable_sources)
-            chart_bounds = _unified.source_date_bounds(
-                chart_balance_data,
-                chart_ear_data,
-                bounds_sources,
-                ena_data=chart_ena_data,
-            )
-
-            if chart_bounds is None:
-                st.warning(ui_text("chart_no_data"))
-            else:
-                chart_data_min, chart_data_max = chart_bounds
-                if chart_granularity == "hourly":
-                    suggested_chart_start = max(
-                        chart_data_min,
-                        chart_data_max - timedelta(days=7),
-                    )
-                elif chart_granularity == "daily":
-                    suggested_chart_start = max(
-                        chart_data_min,
-                        chart_data_max - timedelta(days=90),
-                    )
-                elif chart_granularity == "monthly":
-                    suggested_chart_start = max(
-                        chart_data_min,
-                        chart_data_max - timedelta(days=730),
-                    )
+                if chart_bounds is None:
+                    st.warning(ui_text("chart_no_data"))
                 else:
-                    suggested_chart_start = chart_data_min
+                    chart_data_min, chart_data_max = chart_bounds
+                    if chart_granularity == "hourly":
+                        suggested_chart_start = max(
+                            chart_data_min,
+                            chart_data_max - timedelta(days=7),
+                        )
+                    elif chart_granularity == "daily":
+                        suggested_chart_start = max(
+                            chart_data_min,
+                            chart_data_max - timedelta(days=90),
+                        )
+                    elif chart_granularity == "monthly":
+                        suggested_chart_start = max(
+                            chart_data_min,
+                            chart_data_max - timedelta(days=730),
+                        )
+                    else:
+                        suggested_chart_start = chart_data_min
 
-                chart_start_key = f"chart_start_{chart_granularity}"
-                chart_end_key = f"chart_end_{chart_granularity}"
-                preserve_date_state(
-                    chart_start_key,
-                    default=suggested_chart_start,
-                    min_value=chart_data_min,
-                    max_value=chart_data_max,
-                )
-                preserve_date_state(
-                    chart_end_key,
-                    default=chart_data_max,
-                    min_value=chart_data_min,
-                    max_value=chart_data_max,
-                )
-                chart_date_columns = st.columns(2, gap="small")
-                with chart_date_columns[0]:
-                    chart_start = st.date_input(
-                        ui_text("start_date"),
+                    chart_start_key = f"chart_start_{chart_granularity}"
+                    chart_end_key = f"chart_end_{chart_granularity}"
+                    preserve_date_state(
+                        chart_start_key,
+                        default=suggested_chart_start,
                         min_value=chart_data_min,
                         max_value=chart_data_max,
-                        key=chart_start_key,
                     )
-                with chart_date_columns[1]:
-                    chart_end = st.date_input(
-                        ui_text("end_date"),
+                    preserve_date_state(
+                        chart_end_key,
+                        default=chart_data_max,
                         min_value=chart_data_min,
                         max_value=chart_data_max,
-                        key=chart_end_key,
                     )
+                    chart_date_columns = st.columns(2, gap="small")
+                    with chart_date_columns[0]:
+                        chart_start = st.date_input(
+                            ui_text("start_date"),
+                            min_value=chart_data_min,
+                            max_value=chart_data_max,
+                            key=chart_start_key,
+                        )
+                    with chart_date_columns[1]:
+                        chart_end = st.date_input(
+                            ui_text("end_date"),
+                            min_value=chart_data_min,
+                            max_value=chart_data_max,
+                            key=chart_end_key,
+                        )
 
-                if chart_start > chart_end:
-                    st.error(ui_text("invalid_dates"))
-                else:
-                    chart_ready = True
-                    for source in chart_sources:
-                        summary, metrics = build_source_chart_summary(
-                            results=results,
-                            source=source,
+                    if chart_start > chart_end:
+                        st.error(ui_text("invalid_dates"))
+                    else:
+                        chart_ready = True
+                        for source in chart_sources:
+                            summary, metrics = build_source_chart_summary(
+                                results=results,
+                                source=source,
+                                subsystem_key=chart_subsystem_key,
+                                granularity=chart_granularity,
+                                start_date=chart_start,
+                                end_date=chart_end,
+                            )
+                            if summary.empty or not metrics:
+                                continue
+                            metric_key = f"chart_metric_{source.lower()}"
+                            if st.session_state.get(metric_key) not in metrics:
+                                st.session_state[metric_key] = metrics[0]
+                            chart_specs.append(
+                                {
+                                    "source": source,
+                                    "summary": summary,
+                                    "metrics": metrics,
+                                    "subsystem_label": chart_subsystem_label,
+                                    "metric": st.session_state[metric_key],
+                                    "metric_label": chart_metric_label(st.session_state[metric_key], language),
+                                    "title": f"{SOURCE_LABELS[language][source]} — {chart_metric_label(st.session_state[metric_key], language)}",
+                                }
+                            )
+                        render_chart_controls_and_exports(
+                            chart_specs=chart_specs,
                             subsystem_key=chart_subsystem_key,
                             granularity=chart_granularity,
                             start_date=chart_start,
                             end_date=chart_end,
                         )
-                        if summary.empty or not metrics:
-                            continue
-                        metric_key = f"chart_metric_{source.lower()}"
-                        if st.session_state.get(metric_key) not in metrics:
-                            st.session_state[metric_key] = metrics[0]
-                        chart_specs.append(
-                            {
-                                "source": source,
-                                "summary": summary,
-                                "metrics": metrics,
-                                "subsystem_label": chart_subsystem_label,
-                                "metric": st.session_state[metric_key],
-                                "metric_label": chart_metric_label(st.session_state[metric_key], language),
-                                "title": f"{SOURCE_LABELS[language][source]} — {chart_metric_label(st.session_state[metric_key], language)}",
-                            }
-                        )
-                    render_chart_controls_and_exports(
-                        chart_specs=chart_specs,
-                        subsystem_key=chart_subsystem_key,
+
+                if chart_granularity == "hourly":
+                    st.caption(ui_text("charts_hourly_note"))
+
+        if chart_specs and chart_ready and chart_start and chart_end:
+            with chart_panel_columns[1]:
+                with st.container(border=True, key="chart_stack_card"):
+                    combined_figure = build_combined_plotly_chart(
+                        chart_specs,
                         granularity=chart_granularity,
                         start_date=chart_start,
                         end_date=chart_end,
                     )
+                    st.plotly_chart(
+                        combined_figure,
+                        use_container_width=True,
+                        key="combined_chart_figure",
+                        config={
+                            "displaylogo": False,
+                            "modeBarButtonsToRemove": [
+                                "lasso2d",
+                                "select2d",
+                                "autoScale2d",
+                            ],
+                        },
+                    )
+        elif chart_ready:
+            with chart_panel_columns[1]:
+                with st.container(border=True, key="chart_stack_card"):
+                    st.info(ui_text("chart_no_data"))
+    with panel_two_tab:
+        st.subheader(ui_text("panel2_title"))
+        st.caption(ui_text("panel2_copy"))
 
-            if chart_granularity == "hourly":
-                st.caption(ui_text("charts_hourly_note"))
+        if "BALANCO" not in usable_sources:
+            st.info(ui_text("panel2_requires_balance"))
+        else:
+            panel2_subsystem_items = unified_subsystems(results, ["BALANCO"])
+            panel2_subsystem_labels = dict(panel2_subsystem_items)
+            panel2_subsystem_keys = [key for key, _ in panel2_subsystem_items]
+            if st.session_state.get("panel2_subsystem_value") not in panel2_subsystem_keys:
+                st.session_state.pop("panel2_subsystem_value", None)
 
-    if chart_specs and chart_ready and chart_start and chart_end:
-        with chart_panel_columns[1]:
-            with st.container(border=True, key="chart_stack_card"):
-                combined_figure = build_combined_plotly_chart(
-                    chart_specs,
-                    granularity=chart_granularity,
-                    start_date=chart_start,
-                    end_date=chart_end,
-                )
-                st.plotly_chart(
-                    combined_figure,
-                    use_container_width=True,
-                    key="combined_chart_figure",
-                    config={
-                        "displaylogo": False,
-                        "modeBarButtonsToRemove": [
-                            "lasso2d",
-                            "select2d",
-                            "autoScale2d",
-                        ],
-                    },
-                )
-    elif chart_ready:
-        with chart_panel_columns[1]:
-            with st.container(border=True, key="chart_stack_card"):
-                st.info(ui_text("chart_no_data"))
+            panel2_columns = st.columns([0.95, 1.95], gap="small")
+            panel2_ready = False
+            panel2_data = pd.DataFrame()
+            panel2_start: date | None = None
+            panel2_end: date | None = None
+            panel2_granularity: ChartGranularity = "hourly"
+
+            with panel2_columns[0]:
+                with st.container(border=True, key="panel2_config_card"):
+                    st.markdown(
+                        f'<div class="panel-kicker">{ui_text("charts_config_title")}</div>',
+                        unsafe_allow_html=True,
+                    )
+                    panel2_config_columns = st.columns(2, gap="small")
+                    with panel2_config_columns[0]:
+                        panel2_subsystem_key = st.selectbox(
+                            ui_text("subsystem_selector"),
+                            options=panel2_subsystem_keys,
+                            index=(
+                                panel2_subsystem_keys.index("SIN")
+                                if "SIN" in panel2_subsystem_keys
+                                else 0
+                            ),
+                            key="panel2_subsystem_value",
+                            format_func=lambda value: panel2_subsystem_labels[value],
+                        )
+                    with panel2_config_columns[1]:
+                        panel2_granularity = st.selectbox(
+                            ui_text("granularity_selector"),
+                            options=CHART_GRANULARITIES,
+                            index=0,
+                            key="panel2_granularity_value",
+                            format_func=lambda value: GRANULARITY_LABELS[language][value],
+                        )
+
+                    panel2_balance_data = source_data_for_subsystem(
+                        results,
+                        "BALANCO",
+                        panel2_subsystem_key,
+                    )
+                    panel2_bounds = _unified.source_date_bounds(
+                        panel2_balance_data,
+                        pd.DataFrame(),
+                        ["BALANCO"],
+                        ena_data=pd.DataFrame(),
+                    )
+                    if panel2_bounds is None:
+                        st.warning(ui_text("chart_no_data"))
+                    else:
+                        panel2_min, panel2_max = panel2_bounds
+                        if panel2_granularity == "hourly":
+                            suggested_panel2_start = max(
+                                panel2_min,
+                                panel2_max - timedelta(days=7),
+                            )
+                        elif panel2_granularity == "daily":
+                            suggested_panel2_start = max(
+                                panel2_min,
+                                panel2_max - timedelta(days=90),
+                            )
+                        elif panel2_granularity == "monthly":
+                            suggested_panel2_start = max(
+                                panel2_min,
+                                panel2_max - timedelta(days=730),
+                            )
+                        else:
+                            suggested_panel2_start = panel2_min
+
+                        panel2_start_key = f"panel2_start_{panel2_granularity}"
+                        panel2_end_key = f"panel2_end_{panel2_granularity}"
+                        preserve_date_state(
+                            panel2_start_key,
+                            default=suggested_panel2_start,
+                            min_value=panel2_min,
+                            max_value=panel2_max,
+                        )
+                        preserve_date_state(
+                            panel2_end_key,
+                            default=panel2_max,
+                            min_value=panel2_min,
+                            max_value=panel2_max,
+                        )
+                        panel2_date_columns = st.columns(2, gap="small")
+                        with panel2_date_columns[0]:
+                            panel2_start = st.date_input(
+                                ui_text("start_date"),
+                                min_value=panel2_min,
+                                max_value=panel2_max,
+                                key=panel2_start_key,
+                            )
+                        with panel2_date_columns[1]:
+                            panel2_end = st.date_input(
+                                ui_text("end_date"),
+                                min_value=panel2_min,
+                                max_value=panel2_max,
+                                key=panel2_end_key,
+                            )
+
+                        if panel2_start > panel2_end:
+                            st.error(ui_text("invalid_dates"))
+                        else:
+                            panel2_summary, _ = build_source_chart_summary(
+                                results=results,
+                                source="BALANCO",
+                                subsystem_key=panel2_subsystem_key,
+                                granularity=panel2_granularity,
+                                start_date=panel2_start,
+                                end_date=panel2_end,
+                            )
+                            panel2_data = prepare_power_panel_data(panel2_summary)
+                            panel2_ready = not panel2_data.empty
+
+                    st.info(ui_text("panel2_definition"), icon="ℹ️")
+                    if panel2_ready and material_balance_difference(panel2_data):
+                        st.caption(ui_text("panel2_balance_note"))
+
+            with panel2_columns[1]:
+                with st.container(border=True, key="panel2_chart_card"):
+                    if panel2_ready and panel2_start and panel2_end:
+                        panel2_figure = build_power_panel_plotly_chart(
+                            panel2_data,
+                            granularity=panel2_granularity,
+                            start_date=panel2_start,
+                            end_date=panel2_end,
+                            language_code=language,
+                        )
+                        st.plotly_chart(
+                            panel2_figure,
+                            use_container_width=True,
+                            key="panel2_power_figure",
+                            config={
+                                "displaylogo": False,
+                                "modeBarButtonsToRemove": [
+                                    "lasso2d",
+                                    "select2d",
+                                    "autoScale2d",
+                                ],
+                            },
+                        )
+                    else:
+                        st.info(ui_text("chart_no_data"))
 
 # A rastreabilidade fica no último painel da página.
 with st.container(border=True, key="processed_files_panel"):
