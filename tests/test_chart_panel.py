@@ -255,9 +255,10 @@ def test_power_panel_uses_balance_only_and_has_independent_state() -> None:
     assert 'panel2_end_key = f"panel2_end_{panel2_granularity}"' in source
 
 
-def test_panel2_has_pastel_order_duck_toggle_hour_axis_and_svg() -> None:
+def test_panel2_has_pastel_order_fixed_duck_hour_axis_and_svg() -> None:
     source = APP_PATH.read_text(encoding="utf-8")
-    assert 'panel2_include_wind = st.toggle(' in source
+    assert 'panel2_include_wind = st.toggle(' not in source
+    assert 'panel2_include_wind = True' in source
     assert 'panel2_order_title' in source
     assert 'panel2_order_1' in source
     assert 'source_order=panel2_source_order' in source
@@ -302,3 +303,12 @@ def test_panel2_hourly_axis_shows_hour_and_date_once() -> None:
     assert 'f"{tick:%Hh}<br>{tick:%d/%m}"' in source
     assert 'if pd.Timestamp(tick).hour == 0' in source
     assert 'def panel2_hourly_date_annotations(' not in source
+
+
+def test_advanced_panels_tabs_are_present() -> None:
+    source = APP_PATH.read_text(encoding="utf-8")
+    for key in ("chart_tab_3", "chart_tab_4", "chart_tab_5"):
+        assert f'ui_text("{key}")' in source
+    assert 'with panel_three_tab:' in source
+    assert 'with panel_four_tab:' in source
+    assert 'with panel_five_tab:' in source

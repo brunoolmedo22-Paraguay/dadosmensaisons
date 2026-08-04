@@ -50,3 +50,10 @@ streamlit run app.py
 - `unified_ons.py`: junção temporal, tabela e CSV unificados;
 - `parallel_ons.py`: orquestração concorrente e isolada das três bases, com eventos de progresso entregues à thread principal do Streamlit.
 - `power_panel.py`: preparação da curva de pato e da composição de geração exibidas no Painel 2.
+
+## Painéis avançados
+
+- **Painel 3 — Evolução das rampas:** calcula rampas somente entre horas consecutivas, oferece MW/h e %/h, estatísticas anuais, distribuição por percentis e mapa de calor ano × hora.
+- **Painel 4 — Eventos extremos e anomalias:** rankings de carga, carga líquida, rampas, participações renováveis, EAR, ENA e intercâmbios, com janela contextual, métodos estatísticos, CSV e SVG.
+- **Painel 5 — Evolução da matriz elétrica:** geração e participação anual por fonte, crescimento, índice de ano-base, energia anual equivalente, cobertura e comparação renováveis × carga.
+- No **Painel 2**, a curva de pato considera sempre geração eólica e solar: `Carga − Eólica − Solar`.

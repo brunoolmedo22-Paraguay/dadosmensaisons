@@ -22,6 +22,16 @@ import ena_processing as _ena
 import ons_download as _balance_download
 import unified_ons as _unified
 from parallel_ons import ProgressEvent, SourceSpec, run_parallel_sources
+from ramp_panel import (
+    RAMP, ABS_RAMP, SERIES_LABELS as RAMP_SERIES_LABELS,
+    prepare_ramps, annual_severity, annual_distribution, hourly_heatmap,
+    ramp_kpis, filter_direction,
+)
+from events_panel import event_candidates, rank_events, event_window, csv_bytes as events_csv_bytes
+from matrix_evolution_panel import annual_matrix, matrix_kpis, first_threshold_year, annual_csv_bytes
+from panel_exports import line_svg, bar_svg, heatmap_svg, combine_svgs
+from advanced_figures import ramp_figures, event_figures, matrix_figures
+
 from power_panel_v2 import (
     BALANCE_DIFFERENCE_COLUMN,
     DUCK_CURVE_COLUMN,
@@ -143,6 +153,12 @@ def chart_metric_label(metric: str, language_code: str | None = None) -> str:
         selected_language = "PT"
     return METRIC_LABELS_BY_LANGUAGE[selected_language].get(metric, metric)
 
+def localized_number(value: float | int | None, decimals: int = 1) -> str:
+    if value is None or pd.isna(value):
+        return "—"
+    formatted = f"{float(value):,.{decimals}f}"
+    return formatted.replace(",", "§").replace(".", ",").replace("§", ".")
+
 UI_TEXT: dict[str, dict[str, str]] = {
     "PT": {
         "hero_kicker": "ONS · Consolidação histórica",
@@ -238,6 +254,40 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "charts_need_valid_dates": "Corrija o intervalo para gerar os gráficos.",
         "chart_tab_1": "PAINEL 1",
         "chart_tab_2": "PAINEL 2",
+        "chart_tab_3": "PAINEL 3",
+        "chart_tab_4": "PAINEL 4",
+        "chart_tab_5": "PAINEL 5",
+        "panel3_title": "Evolução das rampas",
+        "panel3_series": "Série analisada",
+        "panel3_unit": "Unidade da rampa",
+        "panel3_direction": "Direção",
+        "panel3_heat_metric": "Estatística do mapa de calor",
+        "panel3_threshold": "Limite da rampa",
+        "panel3_metrics": "Curvas anuais",
+        "panel3_max_up": "Maior rampa ascendente",
+        "panel3_max_down": "Maior rampa descendente",
+        "panel3_p95_year": "Ano mais severo (P95)",
+        "panel3_critical_hour": "Hora mais crítica",
+        "panel3_growth": "Crescimento da severidade",
+        "panel3_download_full": "Baixar Painel 3 completo em SVG",
+        "panel4_title": "Eventos extremos e anomalias",
+        "panel4_event": "Tipo de evento",
+        "panel4_count": "Quantidade do ranking",
+        "panel4_anomaly": "Detecção estatística",
+        "panel4_window": "Janela de análise",
+        "panel4_selected": "Evento selecionado",
+        "panel4_download_full": "Baixar Painel 4 completo em SVG",
+        "panel4_download_rank_csv": "Baixar ranking em CSV",
+        "panel4_download_window_csv": "Baixar janela em CSV",
+        "panel5_title": "Evolução da matriz elétrica",
+        "panel5_sources": "Fontes incluídas",
+        "panel5_base_year": "Ano-base do índice",
+        "panel5_transform": "Visualização de crescimento",
+        "panel5_show_load": "Exibir carga",
+        "panel5_hide_incomplete": "Ocultar anos incompletos",
+        "panel5_threshold": "Limite de participação (%)",
+        "panel5_download_full": "Baixar Painel 5 completo em SVG",
+        "panel5_download_csv": "Baixar dados anuais em CSV",
         "panel2_title": "Carga, curva de pato e composição por fonte",
         "panel2_copy": (
             "Analise a carga líquida após eólica e solar e compare a carga com a "
@@ -387,6 +437,40 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "charts_need_valid_dates": "Corrija el intervalo para generar los gráficos.",
         "chart_tab_1": "PANEL 1",
         "chart_tab_2": "PANEL 2",
+        "chart_tab_3": "PANEL 3",
+        "chart_tab_4": "PANEL 4",
+        "chart_tab_5": "PANEL 5",
+        "panel3_title": "Evolución de las rampas",
+        "panel3_series": "Serie analizada",
+        "panel3_unit": "Unidad de la rampa",
+        "panel3_direction": "Dirección",
+        "panel3_heat_metric": "Estadística del mapa de calor",
+        "panel3_threshold": "Límite de la rampa",
+        "panel3_metrics": "Curvas anuales",
+        "panel3_max_up": "Mayor rampa ascendente",
+        "panel3_max_down": "Mayor rampa descendente",
+        "panel3_p95_year": "Año más severo (P95)",
+        "panel3_critical_hour": "Hora más crítica",
+        "panel3_growth": "Crecimiento de la severidad",
+        "panel3_download_full": "Descargar Panel 3 completo en SVG",
+        "panel4_title": "Eventos extremos y anomalías",
+        "panel4_event": "Tipo de evento",
+        "panel4_count": "Cantidad del ranking",
+        "panel4_anomaly": "Detección estadística",
+        "panel4_window": "Ventana de análisis",
+        "panel4_selected": "Evento seleccionado",
+        "panel4_download_full": "Descargar Panel 4 completo en SVG",
+        "panel4_download_rank_csv": "Descargar ranking en CSV",
+        "panel4_download_window_csv": "Descargar ventana en CSV",
+        "panel5_title": "Evolución de la matriz eléctrica",
+        "panel5_sources": "Fuentes incluidas",
+        "panel5_base_year": "Año base del índice",
+        "panel5_transform": "Visualización del crecimiento",
+        "panel5_show_load": "Mostrar carga",
+        "panel5_hide_incomplete": "Ocultar años incompletos",
+        "panel5_threshold": "Límite de participación (%)",
+        "panel5_download_full": "Descargar Panel 5 completo en SVG",
+        "panel5_download_csv": "Descargar datos anuales en CSV",
         "panel2_title": "Carga, curva de pato y composición por fuente",
         "panel2_copy": (
             "Analice la carga neta después de eólica y solar y compare la carga con la "
@@ -2537,11 +2621,14 @@ if download_clicked:
         "panel2_end_monthly",
         "panel2_start_yearly",
         "panel2_end_yearly",
+        "panel3_start", "panel3_end", "panel3_subsystem",
+        "panel4_start", "panel4_end", "panel4_subsystem",
+        "panel5_start", "panel5_end", "panel5_subsystem",
     ]:
         st.session_state.pop(state_key, None)
     # Remove também chaves dinâmicas de versões anteriores da plataforma.
     for state_key in list(st.session_state):
-        if str(state_key).startswith(("analysis_start_", "analysis_end_", "chart_start_", "chart_end_", "panel2_start_", "panel2_end_")):
+        if str(state_key).startswith(("analysis_start_", "analysis_end_", "chart_start_", "chart_end_", "panel2_start_", "panel2_end_", "panel3_", "panel4_", "panel5_")):
             st.session_state.pop(state_key, None)
 
     downloaded_results, downloaded_bytes, source_errors = obtain_ons_data(
@@ -2881,8 +2968,8 @@ with st.container(border=True, key="charts_panel"):
     st.subheader(ui_text("charts_title"))
     st.caption(ui_text("charts_copy"))
 
-    panel_one_tab, panel_two_tab = st.tabs(
-        [ui_text("chart_tab_1"), ui_text("chart_tab_2")]
+    panel_one_tab, panel_two_tab, panel_three_tab, panel_four_tab, panel_five_tab = st.tabs(
+        [ui_text("chart_tab_1"), ui_text("chart_tab_2"), ui_text("chart_tab_3"), ui_text("chart_tab_4"), ui_text("chart_tab_5")]
     )
 
     with panel_one_tab:
@@ -3122,11 +3209,7 @@ with st.container(border=True, key="charts_panel"):
                             format_func=lambda value: GRANULARITY_LABELS[language][value],
                         )
 
-                    panel2_include_wind = st.toggle(
-                        ui_text("panel2_include_wind"),
-                        value=True,
-                        key="panel2_include_wind_value",
-                    )
+                    panel2_include_wind = True
                     st.markdown(f"**{ui_text('panel2_order_title')}**")
                     st.caption(ui_text("panel2_order_copy"))
                     order_state_keys = [f"panel2_order_{index}" for index in range(1, 5)]
@@ -3234,12 +3317,7 @@ with st.container(border=True, key="charts_panel"):
                             )
                             panel2_ready = not panel2_data.empty
 
-                    definition_key = (
-                        "panel2_definition"
-                        if panel2_include_wind
-                        else "panel2_definition_solar"
-                    )
-                    st.info(ui_text(definition_key), icon="ℹ️")
+                    st.info(ui_text("panel2_definition"), icon="ℹ️")
                     if panel2_ready and material_balance_difference(panel2_data):
                         st.caption(ui_text("panel2_balance_note"))
                     if panel2_ready and panel2_start and panel2_end:
@@ -3293,6 +3371,197 @@ with st.container(border=True, key="charts_panel"):
                         )
                     else:
                         st.info(ui_text("chart_no_data"))
+
+    with panel_three_tab:
+        st.subheader(ui_text("panel3_title"))
+        if "BALANCO" not in usable_sources:
+            st.info(ui_text("panel2_requires_balance"))
+        else:
+            p3_items = unified_subsystems(results, ["BALANCO"])
+            p3_labels = dict(p3_items); p3_keys = list(p3_labels)
+            if st.session_state.get("panel3_subsystem") not in p3_keys: st.session_state.pop("panel3_subsystem", None)
+            p3_cols = st.columns([0.9, 2.1], gap="small")
+            with p3_cols[0]:
+                with st.container(border=True):
+                    p3_sub = st.selectbox(ui_text("subsystem_selector"), p3_keys, key="panel3_subsystem", format_func=lambda x:p3_labels[x])
+                    raw = source_data_for_subsystem(results,"BALANCO",p3_sub)
+                    bounds = _unified.source_date_bounds(raw,pd.DataFrame(),["BALANCO"],ena_data=pd.DataFrame())
+                    if bounds:
+                        p3_min,p3_max=bounds
+                        preserve_date_state("panel3_start",default=p3_min,min_value=p3_min,max_value=p3_max)
+                        preserve_date_state("panel3_end",default=p3_max,min_value=p3_min,max_value=p3_max)
+                        dc=st.columns(2,gap="small")
+                        with dc[0]: p3_start=st.date_input(ui_text("start_date"),min_value=p3_min,max_value=p3_max,key="panel3_start")
+                        with dc[1]: p3_end=st.date_input(ui_text("end_date"),min_value=p3_min,max_value=p3_max,key="panel3_end")
+                    else: p3_start=p3_end=None
+                    series_labels = {"load":("Carga" if language=="PT" else "Carga"),"net_solar":("Carga líquida sem solar" if language=="PT" else "Carga neta sin solar"),"net_solar_wind":("Carga líquida sem solar e eólica" if language=="PT" else "Carga neta sin solar y eólica")}
+                    p3_series=st.selectbox(ui_text("panel3_series"),list(series_labels),format_func=lambda x:series_labels[x],key="panel3_series")
+                    p3_unit=st.selectbox(ui_text("panel3_unit"),["mw","percent"],format_func=lambda x:"MW/h" if x=="mw" else "%/h",key="panel3_unit")
+                    direction_labels={"both":"Ambas" if language=="PT" else "Ambas","up":"Ascendentes","down":"Descendentes","absolute":"Módulo" if language=="PT" else "Módulo"}
+                    p3_direction=st.selectbox(ui_text("panel3_direction"),list(direction_labels),format_func=lambda x:direction_labels[x],key="panel3_direction")
+                    p3_down_abs=st.checkbox("Exibir descidas em módulo" if language=="PT" else "Mostrar descensos en módulo",value=False,key="panel3_down_abs")
+                    heat_labels={"mean_abs":"Média do módulo" if language=="PT" else "Promedio del módulo","p95":"Percentil 95","maximum":"Máximo","frequency":"Frequência acima do limite" if language=="PT" else "Frecuencia sobre el límite"}
+                    p3_heat=st.selectbox(ui_text("panel3_heat_metric"),list(heat_labels),format_func=lambda x:heat_labels[x],key="panel3_heat")
+                    p3_threshold=st.number_input(ui_text("panel3_threshold"),min_value=0.0,value=1000.0 if p3_unit=="mw" else 5.0,disabled=p3_heat!="frequency",key="panel3_threshold_value")
+                    annual_labels={"max_up":"Máxima ascendente","max_down":"Máxima descendente","p95_abs":"P95 módulo","p99_abs":"P99 módulo"}
+                    p3_metrics=st.multiselect(ui_text("panel3_metrics"),list(annual_labels),default=list(annual_labels),format_func=lambda x:annual_labels[x],key="panel3_metrics")
+                    p3_ramps=prepare_ramps(raw,series=p3_series,unit=p3_unit,start_date=p3_start,end_date=p3_end) if p3_start and p3_end else pd.DataFrame()
+                    p3_selected=filter_direction(p3_ramps,p3_direction,p3_down_abs) if not p3_ramps.empty else p3_ramps
+                    p3_annual=annual_severity(p3_selected)
+                    p3_dist=annual_distribution(p3_selected)
+                    p3_heatmap=hourly_heatmap(p3_selected,p3_heat,p3_threshold)
+                    p3_kpi=ramp_kpis(p3_ramps)
+                    unit_label="MW/h" if p3_unit=="mw" else "%/h"
+                    if not p3_ramps.empty:
+                        k1,k2=st.columns(2,gap="small"); k1.metric(ui_text("panel3_max_up"),localized_number(p3_kpi.max_up)); k2.metric(ui_text("panel3_max_down"),localized_number(p3_kpi.max_down))
+                        k3,k4=st.columns(2,gap="small"); k3.metric(ui_text("panel3_p95_year"),p3_kpi.p95_year or "—"); k4.metric(ui_text("panel3_critical_hour"),f"{p3_kpi.critical_hour:02d}h" if p3_kpi.critical_hour is not None else "—")
+                        st.metric(ui_text("panel3_growth"),f"{localized_number(p3_kpi.growth_percent)}%" if p3_kpi.growth_percent is not None else "—")
+                        sev_svg=line_svg(p3_annual,"year",{annual_labels[m]:m for m in p3_metrics if m in p3_annual},"Evolução anual da severidade",unit_label)
+                        dist_svg=line_svg(p3_dist,"year",{"P05":"p05","P25":"p25","Mediana":"p50","P75":"p75","P95":"p95"},"Distribuição anual",unit_label)
+                        heat_svg=heatmap_svg(p3_heatmap,"Horários críticos")
+                        svgc=st.columns(3,gap="small")
+                        p3_svg_labels=["SVG severidade","SVG distribuição","SVG mapa"] if language=="PT" else ["SVG severidad","SVG distribución","SVG mapa"]
+                        for col,label,data,key in zip(svgc,p3_svg_labels,[sev_svg,dist_svg,heat_svg],["p3svg1","p3svg2","p3svg3"]): col.download_button(label,data=data,file_name=f"{key}.svg",mime="image/svg+xml",key=key,width="stretch")
+                        st.download_button(ui_text("panel3_download_full"),data=combine_svgs(ui_text("panel3_title"),[sev_svg,dist_svg,heat_svg]),file_name="painel_3_rampas.svg",mime="image/svg+xml",key="p3full",width="stretch")
+            with p3_cols[1]:
+                if 'p3_ramps' in locals() and not p3_ramps.empty:
+                    labels={**annual_labels,"severity_title":"Evolução anual da severidade" if language=="PT" else "Evolución anual de la severidad","distribution_title":"Distribuição anual das rampas" if language=="PT" else "Distribución anual de las rampas","heat_title":"Horários críticos das rampas" if language=="PT" else "Horas críticas de las rampas","median":"Mediana","year":"Ano" if language=="PT" else "Año","hour":"Hora"}
+                    heat_unit="% de horas" if p3_heat=="frequency" and language=="PT" else "% de horas" if p3_heat=="frequency" else unit_label
+                    figs=ramp_figures(p3_annual,p3_dist,p3_heatmap,labels,unit_label,p3_metrics,heat_unit)
+                    for i,fig in enumerate(figs): st.plotly_chart(fig,width="stretch",key=f"p3fig{i}",config={"displaylogo":False})
+                else: st.info(ui_text("chart_no_data"))
+
+    with panel_four_tab:
+        st.subheader(ui_text("panel4_title"))
+        p4_items=unified_subsystems(results,usable_sources); p4_labels=dict(p4_items); p4_keys=list(p4_labels)
+        p4_cols=st.columns([0.9,2.1],gap="small")
+        with p4_cols[0]:
+            with st.container(border=True):
+                p4_sub=st.selectbox(ui_text("subsystem_selector"),p4_keys,key="panel4_subsystem",format_func=lambda x:p4_labels[x])
+                loaded_start=date(loaded_period[0],1,1); loaded_end=date(loaded_period[1],12,31)
+                preserve_date_state("panel4_start",default=loaded_start,min_value=loaded_start,max_value=loaded_end); preserve_date_state("panel4_end",default=loaded_end,min_value=loaded_start,max_value=loaded_end)
+                dc=st.columns(2,gap="small")
+                with dc[0]: p4_start=st.date_input(ui_text("start_date"),min_value=loaded_start,max_value=loaded_end,key="panel4_start")
+                with dc[1]: p4_end=st.date_input(ui_text("end_date"),min_value=loaded_start,max_value=loaded_end,key="panel4_end")
+                event_labels_pt={"max_load":"Maiores cargas","min_net_load":"Menores cargas líquidas","max_ramp_up":"Maiores rampas ascendentes","max_ramp_down":"Maiores rampas descendentes","max_ramp_abs":"Maiores módulos de rampa","max_solar_share":"Maiores participações solares","max_wind_share":"Maiores participações eólicas","max_vre_share":"Maiores participações solar + eólica","max_ear_drop":"Maiores quedas da EAR","max_ear_rise":"Maiores aumentos da EAR","ena_positive_deviation":"Maiores desvios positivos da ENA","ena_negative_deviation":"Maiores desvios negativos da ENA","ena_absolute_deviation":"Maiores desvios absolutos da ENA","max_import":"Maiores importações","max_export":"Maiores exportações"}
+                event_labels_es={"max_load":"Mayores cargas","min_net_load":"Menores cargas netas","max_ramp_up":"Mayores rampas ascendentes","max_ramp_down":"Mayores rampas descendentes","max_ramp_abs":"Mayores módulos de rampa","max_solar_share":"Mayores participaciones solares","max_wind_share":"Mayores participaciones eólicas","max_vre_share":"Mayores participaciones solar + eólica","max_ear_drop":"Mayores caídas de EAR","max_ear_rise":"Mayores aumentos de EAR","ena_positive_deviation":"Mayores desvíos positivos de ENA","ena_negative_deviation":"Mayores desvíos negativos de ENA","ena_absolute_deviation":"Mayores desvíos absolutos de ENA","max_import":"Mayores importaciones","max_export":"Mayores exportaciones"}
+                event_labels=event_labels_pt if language=="PT" else event_labels_es
+                available_events=[]
+                for e in event_labels:
+                    if e.startswith("max_ear") and "EAR" not in usable_sources: continue
+                    if e.startswith("ena_") and "ENA" not in usable_sources: continue
+                    if not e.startswith(("max_ear","ena_")) and "BALANCO" not in usable_sources: continue
+                    available_events.append(e)
+                p4_event=st.selectbox(ui_text("panel4_event"),available_events,format_func=lambda x:event_labels[x],key="panel4_event")
+                if p4_event in {"max_import","max_export"}:
+                    st.caption("Convenção: intercâmbio positivo = importação; negativo = exportação." if language=="PT" else "Convención: intercambio positivo = importación; negativo = exportación.")
+                p4_count=st.selectbox(ui_text("panel4_count"),[5,10,20,50],index=1,key="panel4_count")
+                anomaly_labels={"none":"Ranking absoluto","zscore":"Z-score","iqr":"Intervalo interquartil","moving":"Desvio da média móvel"}
+                p4_anomaly=st.selectbox(ui_text("panel4_anomaly"),list(anomaly_labels),format_func=lambda x:anomaly_labels[x],key="panel4_anomaly")
+                net_mode_labels={"solar_wind":"Carga − Solar − Eólica" if language=="PT" else "Carga − Solar − Eólica","solar":"Carga − Solar"}
+                p4_net_mode=st.selectbox("Definição da carga líquida" if language=="PT" else "Definición de carga neta",list(net_mode_labels),format_func=lambda x:net_mode_labels[x],key="panel4_net_mode")
+                p4_hour_window=st.selectbox(ui_text("panel4_window"),[12,24,48,72],index=1,format_func=lambda x:f"±{x} h",key="panel4_hour_window")
+                p4_day_window=st.selectbox("Janela diária" if language=="PT" else "Ventana diaria",[7,15,30],index=1,format_func=lambda x:f"±{x} dias" if language=="PT" else f"±{x} días",key="panel4_day_window")
+                hdata=source_data_for_subsystem(results,"BALANCO",p4_sub) if "BALANCO" in usable_sources else pd.DataFrame()
+                edata=source_data_for_subsystem(results,"EAR",p4_sub) if "EAR" in usable_sources else pd.DataFrame()
+                ndata=source_data_for_subsystem(results,"ENA",p4_sub) if "ENA" in usable_sources else pd.DataFrame()
+                candidates=event_candidates(p4_event,hourly=hdata,ear_daily=edata,ena_daily=ndata,start_date=p4_start,end_date=p4_end,net_load_mode=p4_net_mode)
+                ascending=p4_event in {"min_net_load","max_ramp_down"}
+                ranking=rank_events(candidates,p4_count,ascending=ascending,anomaly_method=p4_anomaly)
+                if not ranking.empty:
+                    choices=list(ranking.index)
+                    selected_idx=st.selectbox(ui_text("panel4_selected"),choices,format_func=lambda i:f"#{ranking.loc[i,'rank']} · {ranking.loc[i,'context']} · {ranking.loc[i,'value']:.2f} {ranking.loc[i,'unit']}",key="panel4_selected_idx")
+                    selected=ranking.loc[selected_idx]; source=selected["source"]; center=pd.Timestamp(selected["timestamp"])
+                    daily=edata if source=="EAR" else ndata
+                    window=event_window(center,source=source,hourly=hdata,daily=daily,hours=p4_hour_window,days=p4_day_window)
+                    st.dataframe(ranking[["rank","context","value","unit","source"]],hide_index=True,width="stretch")
+                    st.download_button(ui_text("panel4_download_rank_csv"),events_csv_bytes(ranking),"ranking_eventos.csv","text/csv",key="p4rankcsv",width="stretch")
+                    st.download_button(ui_text("panel4_download_window_csv"),events_csv_bytes(window),"janela_evento.csv","text/csv",key="p4wincsv",width="stretch")
+                    rank_svg=bar_svg(ranking["context"],ranking["value"],"Ranking",str(selected["unit"]))
+                    if source=="BALANCO":
+                        selected_net_column="net_load_solar" if p4_net_mode=="solar" else "net_load"
+                        context_series={"Carga":"val_carga","Carga líquida":selected_net_column}; context_svg=line_svg(window,"din_instante",{k:v for k,v in context_series.items() if v in window},"Contexto temporal","MWmed")
+                        profile_svg=line_svg(window,"din_instante",{k:v for k,v in {"Hidráulica":"val_gerhidraulica","Térmica":"val_gertermica","Eólica":"val_gereolica","Solar":"val_gersolar"}.items() if v in window},"Perfil da ocorrência","MWmed")
+                    else:
+                        dcol="ear_data" if source=="EAR" else "ena_data"; metric=[c for c in window if c.endswith("percentual") or "percentualmlt" in c][0] if not window.empty else dcol
+                        context_svg=line_svg(window,dcol,{source:metric},"Contexto temporal","%") if not window.empty else rank_svg; profile_svg=context_svg
+                    p4_svg_cols=st.columns(3,gap="small")
+                    p4_svg_cols[0].download_button("SVG ranking",rank_svg,"painel_4_ranking.svg","image/svg+xml",key="p4svg1",width="stretch")
+                    p4_svg_cols[1].download_button("SVG contexto",context_svg,"painel_4_contexto.svg","image/svg+xml",key="p4svg2",width="stretch")
+                    p4_svg_cols[2].download_button("SVG perfil",profile_svg,"painel_4_perfil.svg","image/svg+xml",key="p4svg3",width="stretch")
+                    st.download_button(ui_text("panel4_download_full"),combine_svgs(ui_text("panel4_title"),[rank_svg,context_svg,profile_svg]),"painel_4_eventos.svg","image/svg+xml",key="p4full",width="stretch")
+        with p4_cols[1]:
+            if 'ranking' in locals() and not ranking.empty:
+                labels={"ranking":"Ranking de eventos" if language=="PT" else "Ranking de eventos","context":"Contexto temporal","profile":"Perfil da ocorrência" if language=="PT" else "Perfil del evento","load":"Carga","net_load":"Carga líquida" if language=="PT" else "Carga neta","hydro":"Hidráulica","thermal":"Térmica","wind":"Eólica","solar":"Solar","interchange":"Intercâmbio" if language=="PT" else "Intercambio"}
+                plot_window=window.copy()
+                if source=="BALANCO" and p4_net_mode=="solar" and "net_load_solar" in plot_window:
+                    plot_window["net_load"]=plot_window["net_load_solar"]
+                figs=event_figures(ranking,plot_window,source,center,labels)
+                for i,fig in enumerate(figs): st.plotly_chart(fig,width="stretch",key=f"p4fig{i}",config={"displaylogo":False})
+            else: st.info(ui_text("chart_no_data"))
+
+    with panel_five_tab:
+        st.subheader(ui_text("panel5_title"))
+        if "BALANCO" not in usable_sources:
+            st.info(ui_text("panel2_requires_balance"))
+        else:
+            p5_items=unified_subsystems(results,["BALANCO"]); p5_labels=dict(p5_items); p5_keys=list(p5_labels)
+            p5_cols=st.columns([0.9,2.1],gap="small")
+            with p5_cols[0]:
+                with st.container(border=True):
+                    p5_sub=st.selectbox(ui_text("subsystem_selector"),p5_keys,key="panel5_subsystem",format_func=lambda x:p5_labels[x])
+                    raw5=source_data_for_subsystem(results,"BALANCO",p5_sub)
+                    bounds5=_unified.source_date_bounds(raw5,pd.DataFrame(),["BALANCO"],ena_data=pd.DataFrame())
+                    if bounds5:
+                        p5_min,p5_max=bounds5; preserve_date_state("panel5_start",default=p5_min,min_value=p5_min,max_value=p5_max); preserve_date_state("panel5_end",default=p5_max,min_value=p5_min,max_value=p5_max)
+                        dc=st.columns(2,gap="small")
+                        with dc[0]: p5_start=st.date_input(ui_text("start_date"),min_value=p5_min,max_value=p5_max,key="panel5_start")
+                        with dc[1]: p5_end=st.date_input(ui_text("end_date"),min_value=p5_min,max_value=p5_max,key="panel5_end")
+                    source_labels={"hydro":"Hidráulica","thermal":"Térmica","wind":"Eólica","solar":"Solar"}
+                    p5_sources=st.multiselect(ui_text("panel5_sources"),list(source_labels),default=list(source_labels),format_func=lambda x:source_labels[x],key="panel5_sources")
+                    years=list(range(p5_start.year,p5_end.year+1)); p5_base=st.selectbox(ui_text("panel5_base_year"),years,key="panel5_base_year")
+                    mode_labels={"growth":"Crescimento anual" if language=="PT" else "Crecimiento anual","cumulative":"Crescimento acumulado" if language=="PT" else "Crecimiento acumulado","index":"Índice base 100","difference":"Diferença para o ano-base" if language=="PT" else "Diferencia respecto al año base"}
+                    p5_mode=st.selectbox(ui_text("panel5_transform"),list(mode_labels),format_func=lambda x:mode_labels[x],key="panel5_mode")
+                    p5_load=st.checkbox(ui_text("panel5_show_load"),value=True,key="panel5_load")
+                    p5_interchange=st.checkbox("Exibir intercâmbio" if language=="PT" else "Mostrar intercambio",value=False,key="panel5_interchange")
+                    p5_measure=st.selectbox("Métrica anual" if language=="PT" else "Métrica anual",["mean","energy"],format_func=lambda x:("Média anual (MWmed)" if language=="PT" else "Promedio anual (MWmed)") if x=="mean" else ("Energia anual equivalente (GWh)" if language=="PT" else "Energía anual equivalente (GWh)"),key="panel5_measure")
+                    p5_hide=st.checkbox(ui_text("panel5_hide_incomplete"),value=False,key="panel5_hide")
+                    p5_threshold=st.number_input(ui_text("panel5_threshold"),min_value=0.0,max_value=100.0,value=5.0,key="panel5_threshold_value")
+                    annual5=annual_matrix(raw5,start_date=p5_start,end_date=p5_end,sources=p5_sources,base_year=p5_base,measure=p5_measure)
+                    p5_unit_label="GWh" if p5_measure=="energy" else "MWmed"
+                    if p5_hide and not annual5.empty: annual5=annual5.loc[annual5["complete"]].reset_index(drop=True)
+                    kpi5=matrix_kpis(annual5)
+                    if not annual5.empty:
+                        st.metric("Fonte que mais cresceu" if language=="PT" else "Fuente que más creció",source_labels.get(kpi5.get("fastest_source"),"—"))
+                        k1,k2=st.columns(2); k1.metric("Solar",f"{localized_number(kpi5.get('solar_growth'))}%"); k2.metric("Eólica",f"{localized_number(kpi5.get('wind_growth'))}%")
+                        k3,k4=st.columns(2); k3.metric("Térmica",f"{localized_number(kpi5.get('thermal_change'))}%"); k4.metric("Hidráulica",f"{localized_number(kpi5.get('hydro_change'))}%")
+                        k5,k6=st.columns(2); k5.metric("Mudança VRE" if language=="PT" else "Cambio VRE",f"{localized_number(kpi5.get('vre_participation_change'))} p.p."); k6.metric("Ano de transformação" if language=="PT" else "Año de transformación",kpi5.get("transformation_year") or "—")
+                        st.caption(f"Primeiro ano solar ≥ {p5_threshold}%: {first_threshold_year(annual5,'solar',p5_threshold) or '—'} · eólica: {first_threshold_year(annual5,'wind',p5_threshold) or '—'}")
+                        st.download_button(ui_text("panel5_download_csv"),annual_csv_bytes(annual5),"evolucao_matriz.csv","text/csv",key="p5csv",width="stretch")
+                        # SVGs usam as séries anuais efetivamente selecionadas.
+                        source_cols={"hydro":"val_gerhidraulica","thermal":"val_gertermica","wind":"val_gereolica","solar":"val_gersolar"}
+                        gen_svg=line_svg(annual5,"year",{source_labels[s]:source_cols[s] for s in p5_sources},"Geração anual por fonte" if language=="PT" else "Generación anual por fuente",p5_unit_label)
+                        share_svg=line_svg(annual5,"year",{source_labels[s]:f"share_{s}" for s in p5_sources},"Participação percentual" if language=="PT" else "Participación porcentual","%")
+                        prefix={"growth":"growth_","cumulative":"cumulative_","index":"index_","difference":"difference_"}[p5_mode]
+                        trans_svg=line_svg(annual5,"year",{source_labels[s]:prefix+s for s in p5_sources if prefix+s in annual5},"Crescimento e transformação" if language=="PT" else "Crecimiento y transformación","%" if p5_mode!="difference" else p5_unit_label)
+                        comparison_series={"Carga":"val_carga","Hidráulica":"val_gerhidraulica","Eólica + Solar":"vre"}
+                        if p5_interchange: comparison_series["Intercâmbio"]="val_intercambio"
+                        comp_svg=line_svg(annual5,"year",comparison_series,"Renováveis × carga" if language=="PT" else "Renovables × carga",p5_unit_label)
+                        p5_svg_cols=st.columns(2,gap="small")
+                        p5_svg_cols[0].download_button("SVG geração",gen_svg,"painel_5_geracao.svg","image/svg+xml",key="p5svg1",width="stretch")
+                        p5_svg_cols[1].download_button("SVG participação",share_svg,"painel_5_participacao.svg","image/svg+xml",key="p5svg2",width="stretch")
+                        p5_svg_cols2=st.columns(2,gap="small")
+                        p5_svg_cols2[0].download_button("SVG transformação",trans_svg,"painel_5_transformacao.svg","image/svg+xml",key="p5svg3",width="stretch")
+                        p5_svg_cols2[1].download_button("SVG comparação",comp_svg,"painel_5_comparacao.svg","image/svg+xml",key="p5svg4",width="stretch")
+                        st.download_button(ui_text("panel5_download_full"),combine_svgs(ui_text("panel5_title"),[gen_svg,share_svg,trans_svg,comp_svg]),"painel_5_matriz.svg","image/svg+xml",key="p5full",width="stretch")
+            with p5_cols[1]:
+                if 'annual5' in locals() and not annual5.empty:
+                    labels={**source_labels,"load":"Carga","vre":"Eólica + Solar","vre_share":"Participação VRE/carga","generation":"Geração anual por fonte","participation":"Participação percentual","transformation":"Crescimento e transformação","comparison":"Renováveis × carga"}
+                    labels["interchange"]="Intercâmbio" if language=="PT" else "Intercambio"
+                    figs=matrix_figures(annual5,labels,p5_sources,p5_mode,p5_load,p5_interchange,p5_unit_label)
+                    for i,fig in enumerate(figs): st.plotly_chart(fig,width="stretch",key=f"p5fig{i}",config={"displaylogo":False})
+                else: st.info(ui_text("chart_no_data"))
+
 
 # A rastreabilidade fica no último painel da página.
 with st.container(border=True, key="processed_files_panel"):
