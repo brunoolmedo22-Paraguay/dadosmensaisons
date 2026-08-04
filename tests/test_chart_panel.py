@@ -255,9 +255,11 @@ def test_power_panel_uses_balance_only_and_has_independent_state() -> None:
     assert 'panel2_end_key = f"panel2_end_{panel2_granularity}"' in source
 
 
-def test_panel2_has_pastel_order_duck_toggle_hour_axis_and_svg() -> None:
+def test_panel2_has_fixed_wind_pastel_order_hour_axis_and_svg() -> None:
     source = APP_PATH.read_text(encoding="utf-8")
-    assert 'panel2_include_wind = st.toggle(' in source
+    assert 'panel2_include_wind = st.toggle(' not in source
+    assert 'prepare_power_panel_data(panel2_summary)' in source
+    assert 'st.info(ui_text("panel2_definition"), icon="ℹ️")' in source
     assert 'panel2_order_title' in source
     assert 'panel2_order_1' in source
     assert 'source_order=panel2_source_order' in source
@@ -302,3 +304,28 @@ def test_panel2_hourly_axis_shows_hour_and_date_once() -> None:
     assert 'f"{tick:%Hh}<br>{tick:%d/%m}"' in source
     assert 'if pd.Timestamp(tick).hour == 0' in source
     assert 'def panel2_hourly_date_annotations(' not in source
+
+
+def test_panel3_participation_controls_and_charts_are_present() -> None:
+    source = APP_PATH.read_text(encoding="utf-8")
+    assert 'ui_text("chart_tab_3")' in source
+    assert 'key="panel3_subsystem_value"' in source
+    assert 'key="panel3_granularity_value"' in source
+    assert 'key="panel3_unit_value"' in source
+    assert 'key="panel3_chart_type_value"' in source
+    assert source.count('st.segmented_control(') >= 2
+    assert 'key="panel3_year_range_value"' in source
+    assert 'key="panel3_months_value"' in source
+    assert 'build_source_participation_chart(' in source
+    assert 'go.Pie(' in source
+    assert 'go.Bar(' in source
+    assert 'barmode="stack"' in source
+
+
+def test_panel3_defaults_to_recent_periods_and_allows_month_selection() -> None:
+    source = APP_PATH.read_text(encoding="utf-8")
+    assert 'default_start_index = max(0, len(panel3_years) - 6)' in source
+    assert 'available_months[-6:]' in source
+    assert 'st.multiselect(' in source
+    assert 'prepare_source_participation(panel3_summary)' in source
+    assert 'panel3_definition' in source

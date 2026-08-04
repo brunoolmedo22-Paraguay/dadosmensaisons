@@ -12,6 +12,7 @@ from typing import Any, Literal, Sequence
 
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 
 import balanco_ons as _balanco
@@ -28,6 +29,9 @@ from power_panel_v2 import (
     GENERATION_COLUMNS,
     HYDRO_COLUMN,
     LOAD_COLUMN,
+    PARTICIPATION_PERCENT_COLUMN,
+    PARTICIPATION_SOURCE_COLUMN,
+    PARTICIPATION_VALUE_COLUMN,
     PERIOD_COLUMN,
     SOLAR_COLUMN,
     SOURCE_COLUMN_BY_KEY,
@@ -38,6 +42,7 @@ from power_panel_v2 import (
     material_balance_difference,
     normalize_source_order,
     prepare_power_panel_data,
+    prepare_source_participation,
 )
 
 
@@ -249,7 +254,6 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "panel2_duck_title": "Carga e curva de pato",
         "panel2_stack_title": "Composição da carga por fonte",
         "panel2_duck_curve": "Curva de pato (Carga − Eólica − Solar)",
-        "panel2_duck_curve_solar": "Curva de pato (Carga − Solar)",
         "panel2_load": "Carga",
         "panel2_hydro": "Hidráulica",
         "panel2_thermal": "Térmica",
@@ -257,8 +261,6 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "panel2_solar": "Solar",
         "panel2_axis": "Potência média (MWmed)",
         "panel2_definition": "Curva de pato = Carga − Geração eólica − Geração solar.",
-        "panel2_definition_solar": "Curva de pato = Carga − Geração solar.",
-        "panel2_include_wind": "Considerar eólica na curva de pato",
         "panel2_order_title": "Ordem das fontes no empilhamento",
         "panel2_order_copy": "A 1ª fonte fica na base; a 4ª fica no topo.",
         "panel2_order_1": "1ª fonte",
@@ -271,6 +273,31 @@ UI_TEXT: dict[str, dict[str, str]] = {
             "o intercâmbio e ajustes do balanço."
         ),
         "panel2_download_svg": "Baixar Painel 2 em SVG",
+        "chart_tab_3": "PAINEL 3",
+        "panel3_title": "Participação da geração por fonte",
+        "panel3_copy": (
+            "Compare a participação hidráulica, térmica, eólica e solar por ano ou por mês, "
+            "em percentual da geração total ou em potência média."
+        ),
+        "panel3_requires_balance": "Selecione Balanço no seletor de bases para utilizar este painel.",
+        "panel3_granularity": "Granularidade",
+        "panel3_yearly": "Anual",
+        "panel3_monthly": "Mensal",
+        "panel3_unit": "Unidade de exibição",
+        "panel3_percent": "% da geração",
+        "panel3_mwmed": "MWmed",
+        "panel3_chart_type": "Tipo de gráfico",
+        "panel3_donut": "Roscas",
+        "panel3_bar": "Barras",
+        "panel3_year_range": "Intervalo de anos",
+        "panel3_year": "Ano",
+        "panel3_months": "Meses exibidos",
+        "panel3_month_help": "Selecione um ou mais meses para limitar a quantidade de roscas.",
+        "panel3_axis_percent": "Participação na geração (%)",
+        "panel3_axis_mwmed": "Geração média (MWmed)",
+        "panel3_total": "Geração total",
+        "panel3_no_periods": "Não há períodos com geração positiva para a seleção.",
+        "panel3_definition": "Participação calculada sobre a soma da geração hidráulica, térmica, eólica e solar.",
         "processed_kicker": "Rastreabilidade",
         "processed_copy": "Relação dos arquivos anuais efetivamente utilizados no processamento.",
         "sin_ena_calculated_label": "SIN · ENA calculada",
@@ -398,7 +425,6 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "panel2_duck_title": "Carga y curva de pato",
         "panel2_stack_title": "Composición de la carga por fuente",
         "panel2_duck_curve": "Curva de pato (Carga − Eólica − Solar)",
-        "panel2_duck_curve_solar": "Curva de pato (Carga − Solar)",
         "panel2_load": "Carga",
         "panel2_hydro": "Hidráulica",
         "panel2_thermal": "Térmica",
@@ -406,8 +432,6 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "panel2_solar": "Solar",
         "panel2_axis": "Potencia media (MWmed)",
         "panel2_definition": "Curva de pato = Carga − Generación eólica − Generación solar.",
-        "panel2_definition_solar": "Curva de pato = Carga − Generación solar.",
-        "panel2_include_wind": "Considerar eólica en la curva de pato",
         "panel2_order_title": "Orden de las fuentes en el apilamiento",
         "panel2_order_copy": "La 1.ª fuente queda en la base; la 4.ª queda arriba.",
         "panel2_order_1": "1.ª fuente",
@@ -420,6 +444,31 @@ UI_TEXT: dict[str, dict[str, str]] = {
             "principalmente el intercambio y los ajustes del balance."
         ),
         "panel2_download_svg": "Descargar Panel 2 en SVG",
+        "chart_tab_3": "PANEL 3",
+        "panel3_title": "Participación de la generación por fuente",
+        "panel3_copy": (
+            "Compare la participación hidráulica, térmica, eólica y solar por año o por mes, "
+            "como porcentaje de la generación total o en potencia media."
+        ),
+        "panel3_requires_balance": "Seleccione Balance en el selector de bases para utilizar este panel.",
+        "panel3_granularity": "Granularidad",
+        "panel3_yearly": "Anual",
+        "panel3_monthly": "Mensual",
+        "panel3_unit": "Unidad de visualización",
+        "panel3_percent": "% de la generación",
+        "panel3_mwmed": "MWmed",
+        "panel3_chart_type": "Tipo de gráfico",
+        "panel3_donut": "Donas",
+        "panel3_bar": "Barras",
+        "panel3_year_range": "Intervalo de años",
+        "panel3_year": "Año",
+        "panel3_months": "Meses mostrados",
+        "panel3_month_help": "Seleccione uno o más meses para limitar la cantidad de donas.",
+        "panel3_axis_percent": "Participación en la generación (%)",
+        "panel3_axis_mwmed": "Generación media (MWmed)",
+        "panel3_total": "Generación total",
+        "panel3_no_periods": "No hay períodos con generación positiva para la selección.",
+        "panel3_definition": "Participación calculada sobre la suma de la generación hidráulica, térmica, eólica y solar.",
         "processed_kicker": "Trazabilidad",
         "processed_copy": "Relación de los archivos anuales utilizados efectivamente en el procesamiento.",
         "sin_ena_calculated_label": "SIN · ENA calculada",
@@ -909,7 +958,9 @@ st.markdown(
             padding: .38rem .42rem .25rem;
         }
         .st-key-panel2_config_card,
-        .st-key-panel2_chart_card {
+        .st-key-panel2_chart_card,
+        .st-key-panel3_config_card,
+        .st-key-panel3_chart_card {
             background: color-mix(
                 in srgb,
                 var(--secondary-background-color) 84%,
@@ -921,7 +972,9 @@ st.markdown(
             box-shadow: none;
         }
         .st-key-panel2_config_card [data-testid="stVerticalBlock"],
-        .st-key-panel2_chart_card [data-testid="stVerticalBlock"] {
+        .st-key-panel2_chart_card [data-testid="stVerticalBlock"],
+        .st-key-panel3_config_card [data-testid="stVerticalBlock"],
+        .st-key-panel3_chart_card [data-testid="stVerticalBlock"] {
             gap: .38rem;
         }
         .st-key-combined_chart_figure {
@@ -1737,7 +1790,6 @@ def build_power_panel_plotly_chart(
     end_date: date,
     language_code: str,
     source_order: Sequence[str] = SOURCE_KEYS,
-    include_wind_in_duck_curve: bool = True,
 ) -> go.Figure:
     """Monta carga/curva de pato e composição empilhada sobre o mesmo eixo x."""
     figure = go.Figure()
@@ -1751,11 +1803,7 @@ def build_power_panel_plotly_chart(
         if granularity == "monthly"
         else "%{x|%Y}<br>%{y:,.2f} MWmed<extra>%{fullData.name}</extra>"
     )
-    duck_label_key = (
-        "panel2_duck_curve"
-        if include_wind_in_duck_curve
-        else "panel2_duck_curve_solar"
-    )
+    duck_label_key = "panel2_duck_curve"
 
     figure.add_trace(
         go.Scatter(
@@ -1937,7 +1985,6 @@ def power_panel_svg(
     subsystem_label: str,
     language_code: str,
     source_order: Sequence[str],
-    include_wind_in_duck_curve: bool,
 ) -> bytes:
     """Exporta os dois gráficos do Painel 2 em um único SVG vetorial."""
     if data.empty:
@@ -2060,7 +2107,7 @@ def power_panel_svg(
     nodes.append(f'<path d="{bottom_load_path}" fill="none" stroke="#455A64" stroke-width="2.4"/>')
 
     # Legendas.
-    duck_key = "panel2_duck_curve" if include_wind_in_duck_curve else "panel2_duck_curve_solar"
+    duck_key = "panel2_duck_curve"
     legend_items = [
         (UI_TEXT[language_code]["panel2_load"], "#526D82"),
         (UI_TEXT[language_code][duck_key], "#C9936B"),
@@ -2113,6 +2160,226 @@ def power_panel_svg(
         '</svg>',
     ])
     return "".join(nodes).encode("utf-8")
+
+
+
+def participation_period_label(
+    period: pd.Timestamp,
+    granularity: Literal["monthly", "yearly"],
+    language_code: str,
+) -> str:
+    """Formata o período do Painel 3 no idioma selecionado."""
+    timestamp = pd.Timestamp(period)
+    if granularity == "yearly":
+        return str(timestamp.year)
+    month_names = {
+        "PT": (
+            "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+            "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+        ),
+        "ES": (
+            "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+            "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+        ),
+    }
+    names = month_names.get(language_code, month_names["PT"])
+    return f"{names[timestamp.month - 1]} {timestamp.year}"
+
+
+def build_source_participation_chart(
+    data: pd.DataFrame,
+    *,
+    granularity: Literal["monthly", "yearly"],
+    unit: Literal["percent", "mwmed"],
+    chart_type: Literal["donut", "bar"],
+    language_code: str,
+) -> go.Figure:
+    """Cria roscas múltiplas ou barras empilhadas para participação por fonte."""
+    if data.empty:
+        return go.Figure()
+
+    frame = data.copy()
+    frame[PERIOD_COLUMN] = pd.to_datetime(frame[PERIOD_COLUMN], errors="coerce")
+    frame = frame.dropna(subset=[PERIOD_COLUMN]).sort_values(
+        [PERIOD_COLUMN, PARTICIPATION_SOURCE_COLUMN], kind="stable"
+    )
+    periods = list(frame[PERIOD_COLUMN].drop_duplicates())
+    source_labels = {
+        source_key: panel2_source_label(source_key, language_code)
+        for source_key in SOURCE_KEYS
+    }
+    colors = [panel2_component_style(source_key)["svg"] for source_key in SOURCE_KEYS]
+    value_column = (
+        PARTICIPATION_PERCENT_COLUMN if unit == "percent" else PARTICIPATION_VALUE_COLUMN
+    )
+
+    if chart_type == "donut":
+        columns = min(3, max(len(periods), 1))
+        rows = max(1, math.ceil(len(periods) / columns))
+        specs = [
+            [{"type": "domain"} if row * columns + column < len(periods) else None
+             for column in range(columns)]
+            for row in range(rows)
+        ]
+        titles = [
+            participation_period_label(period, granularity, language_code)
+            for period in periods
+        ]
+        figure = make_subplots(
+            rows=rows,
+            cols=columns,
+            specs=specs,
+            subplot_titles=titles,
+            horizontal_spacing=0.045,
+            vertical_spacing=0.13 if rows > 1 else 0.04,
+        )
+        for index, period in enumerate(periods):
+            row = index // columns + 1
+            column = index % columns + 1
+            period_data = frame.loc[frame[PERIOD_COLUMN].eq(period)].set_index(
+                PARTICIPATION_SOURCE_COLUMN
+            )
+            mw_values = [
+                float(period_data.at[source_key, PARTICIPATION_VALUE_COLUMN])
+                if source_key in period_data.index
+                else 0.0
+                for source_key in SOURCE_KEYS
+            ]
+            percent_values = [
+                float(period_data.at[source_key, PARTICIPATION_PERCENT_COLUMN])
+                if source_key in period_data.index
+                else 0.0
+                for source_key in SOURCE_KEYS
+            ]
+            plotted_values = percent_values if unit == "percent" else mw_values
+            custom_data = list(zip(mw_values, percent_values))
+            figure.add_trace(
+                go.Pie(
+                    labels=[source_labels[source_key] for source_key in SOURCE_KEYS],
+                    values=plotted_values,
+                    customdata=custom_data,
+                    hole=0.54,
+                    sort=False,
+                    direction="clockwise",
+                    marker={"colors": colors, "line": {"color": "#ffffff", "width": 2}},
+                    textposition="inside",
+                    texttemplate=(
+                        "%{customdata[1]:.1f}%"
+                        if unit == "percent"
+                        else "%{customdata[0]:,.0f}"
+                    ),
+                    hovertemplate=(
+                        "%{label}<br>%{customdata[1]:.2f}%"
+                        "<br>%{customdata[0]:,.2f} MWmed<extra></extra>"
+                    ),
+                    showlegend=index == 0,
+                    name=participation_period_label(period, granularity, language_code),
+                ),
+                row=row,
+                col=column,
+            )
+        figure.update_layout(
+            height=max(390, rows * 320),
+            margin={"l": 18, "r": 18, "t": 72, "b": 42},
+            paper_bgcolor="#ffffff",
+            plot_bgcolor="#ffffff",
+            legend={
+                "orientation": "h",
+                "yanchor": "bottom",
+                "y": 1.04,
+                "xanchor": "left",
+                "x": 0.0,
+                "font": {"size": 11},
+            },
+            font={"family": "Arial, sans-serif", "color": "#17383b"},
+        )
+        return figure
+
+    period_labels = [
+        participation_period_label(period, granularity, language_code)
+        for period in periods
+    ]
+    figure = go.Figure()
+    for source_key in SOURCE_KEYS:
+        source_data = frame.loc[
+            frame[PARTICIPATION_SOURCE_COLUMN].eq(source_key)
+        ].set_index(PERIOD_COLUMN)
+        values = [
+            float(source_data.at[period, value_column])
+            if period in source_data.index
+            else 0.0
+            for period in periods
+        ]
+        mw_values = [
+            float(source_data.at[period, PARTICIPATION_VALUE_COLUMN])
+            if period in source_data.index
+            else 0.0
+            for period in periods
+        ]
+        percent_values = [
+            float(source_data.at[period, PARTICIPATION_PERCENT_COLUMN])
+            if period in source_data.index
+            else 0.0
+            for period in periods
+        ]
+        figure.add_trace(
+            go.Bar(
+                x=period_labels,
+                y=values,
+                name=source_labels[source_key],
+                marker={"color": panel2_component_style(source_key)["svg"]},
+                customdata=list(zip(mw_values, percent_values)),
+                hovertemplate=(
+                    "%{x}<br>%{fullData.name}<br>%{customdata[1]:.2f}%"
+                    "<br>%{customdata[0]:,.2f} MWmed<extra></extra>"
+                ),
+                text=(
+                    [f"{value:.1f}%" for value in percent_values]
+                    if unit == "percent" and len(periods) <= 12
+                    else [f"{value:,.0f}" for value in mw_values]
+                    if unit == "mwmed" and len(periods) <= 8
+                    else None
+                ),
+                textposition="inside",
+            )
+        )
+    y_axis_title = UI_TEXT[language_code][
+        "panel3_axis_percent" if unit == "percent" else "panel3_axis_mwmed"
+    ]
+    y_axis: dict[str, Any] = {
+        "title": {"text": y_axis_title},
+        "gridcolor": "#dde7e8",
+        "zeroline": False,
+        "showline": True,
+        "linecolor": "#a5b6b8",
+    }
+    if unit == "percent":
+        y_axis["range"] = [0, 100]
+    figure.update_layout(
+        barmode="stack",
+        height=560,
+        margin={"l": 28, "r": 18, "t": 68, "b": 72},
+        paper_bgcolor="#ffffff",
+        plot_bgcolor="#ffffff",
+        xaxis={
+            "showgrid": False,
+            "showline": True,
+            "linecolor": "#a5b6b8",
+            "tickangle": -35 if len(periods) > 8 else 0,
+        },
+        yaxis=y_axis,
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.03,
+            "xanchor": "left",
+            "x": 0.0,
+            "font": {"size": 11},
+        },
+        hovermode="x unified",
+        font={"family": "Arial, sans-serif", "color": "#17383b"},
+    )
+    return figure
 
 
 def render_chart_controls_and_exports(
@@ -2537,11 +2804,18 @@ if download_clicked:
         "panel2_end_monthly",
         "panel2_start_yearly",
         "panel2_end_yearly",
+        "panel3_subsystem_value",
+        "panel3_granularity_value",
+        "panel3_unit_value",
+        "panel3_chart_type_value",
+        "panel3_year_range_value",
+        "panel3_year_value",
+        "panel3_months_value",
     ]:
         st.session_state.pop(state_key, None)
     # Remove também chaves dinâmicas de versões anteriores da plataforma.
     for state_key in list(st.session_state):
-        if str(state_key).startswith(("analysis_start_", "analysis_end_", "chart_start_", "chart_end_", "panel2_start_", "panel2_end_")):
+        if str(state_key).startswith(("analysis_start_", "analysis_end_", "chart_start_", "chart_end_", "panel2_start_", "panel2_end_", "panel3_")):
             st.session_state.pop(state_key, None)
 
     downloaded_results, downloaded_bytes, source_errors = obtain_ons_data(
@@ -2881,8 +3155,8 @@ with st.container(border=True, key="charts_panel"):
     st.subheader(ui_text("charts_title"))
     st.caption(ui_text("charts_copy"))
 
-    panel_one_tab, panel_two_tab = st.tabs(
-        [ui_text("chart_tab_1"), ui_text("chart_tab_2")]
+    panel_one_tab, panel_two_tab, panel_three_tab = st.tabs(
+        [ui_text("chart_tab_1"), ui_text("chart_tab_2"), ui_text("chart_tab_3")]
     )
 
     with panel_one_tab:
@@ -3122,11 +3396,6 @@ with st.container(border=True, key="charts_panel"):
                             format_func=lambda value: GRANULARITY_LABELS[language][value],
                         )
 
-                    panel2_include_wind = st.toggle(
-                        ui_text("panel2_include_wind"),
-                        value=True,
-                        key="panel2_include_wind_value",
-                    )
                     st.markdown(f"**{ui_text('panel2_order_title')}**")
                     st.caption(ui_text("panel2_order_copy"))
                     order_state_keys = [f"panel2_order_{index}" for index in range(1, 5)]
@@ -3228,18 +3497,10 @@ with st.container(border=True, key="charts_panel"):
                                 start_date=panel2_start,
                                 end_date=panel2_end,
                             )
-                            panel2_data = prepare_power_panel_data(
-                                panel2_summary,
-                                include_wind_in_duck_curve=panel2_include_wind,
-                            )
+                            panel2_data = prepare_power_panel_data(panel2_summary)
                             panel2_ready = not panel2_data.empty
 
-                    definition_key = (
-                        "panel2_definition"
-                        if panel2_include_wind
-                        else "panel2_definition_solar"
-                    )
-                    st.info(ui_text(definition_key), icon="ℹ️")
+                    st.info(ui_text("panel2_definition"), icon="ℹ️")
                     if panel2_ready and material_balance_difference(panel2_data):
                         st.caption(ui_text("panel2_balance_note"))
                     if panel2_ready and panel2_start and panel2_end:
@@ -3251,7 +3512,6 @@ with st.container(border=True, key="charts_panel"):
                             subsystem_label=panel2_subsystem_labels[panel2_subsystem_key],
                             language_code=language,
                             source_order=panel2_source_order,
-                            include_wind_in_duck_curve=panel2_include_wind,
                         )
                         st.download_button(
                             ui_text("panel2_download_svg"),
@@ -3276,7 +3536,6 @@ with st.container(border=True, key="charts_panel"):
                             end_date=panel2_end,
                             language_code=language,
                             source_order=panel2_source_order,
-                            include_wind_in_duck_curve=panel2_include_wind,
                         )
                         st.plotly_chart(
                             panel2_figure,
@@ -3293,6 +3552,218 @@ with st.container(border=True, key="charts_panel"):
                         )
                     else:
                         st.info(ui_text("chart_no_data"))
+
+
+    with panel_three_tab:
+        st.subheader(ui_text("panel3_title"))
+        st.caption(ui_text("panel3_copy"))
+
+        if "BALANCO" not in usable_sources:
+            st.info(ui_text("panel3_requires_balance"))
+        else:
+            panel3_subsystem_items = unified_subsystems(results, ["BALANCO"])
+            panel3_subsystem_labels = dict(panel3_subsystem_items)
+            panel3_subsystem_keys = [key for key, _ in panel3_subsystem_items]
+            if st.session_state.get("panel3_subsystem_value") not in panel3_subsystem_keys:
+                st.session_state.pop("panel3_subsystem_value", None)
+
+            panel3_columns = st.columns([0.95, 1.95], gap="small")
+            panel3_ready = False
+            panel3_data = pd.DataFrame()
+            panel3_granularity: Literal["monthly", "yearly"] = "yearly"
+            panel3_unit: Literal["percent", "mwmed"] = "percent"
+            panel3_chart_type: Literal["donut", "bar"] = "donut"
+
+            with panel3_columns[0]:
+                with st.container(border=True, key="panel3_config_card"):
+                    st.markdown(
+                        f'<div class="panel-kicker">{ui_text("charts_config_title")}</div>',
+                        unsafe_allow_html=True,
+                    )
+                    panel3_top_columns = st.columns(2, gap="small")
+                    with panel3_top_columns[0]:
+                        panel3_subsystem_key = st.selectbox(
+                            ui_text("subsystem_selector"),
+                            options=panel3_subsystem_keys,
+                            index=(
+                                panel3_subsystem_keys.index("SIN")
+                                if "SIN" in panel3_subsystem_keys
+                                else 0
+                            ),
+                            key="panel3_subsystem_value",
+                            format_func=lambda value: panel3_subsystem_labels[value],
+                        )
+                    with panel3_top_columns[1]:
+                        panel3_granularity = st.selectbox(
+                            ui_text("panel3_granularity"),
+                            options=["yearly", "monthly"],
+                            key="panel3_granularity_value",
+                            format_func=lambda value: ui_text(
+                                "panel3_yearly" if value == "yearly" else "panel3_monthly"
+                            ),
+                        )
+
+                    panel3_unit = st.segmented_control(
+                        ui_text("panel3_unit"),
+                        options=["percent", "mwmed"],
+                        default="percent",
+                        required=True,
+                        key="panel3_unit_value",
+                        format_func=lambda value: ui_text(
+                            "panel3_percent" if value == "percent" else "panel3_mwmed"
+                        ),
+                        width="stretch",
+                    )
+                    panel3_chart_type = st.segmented_control(
+                        ui_text("panel3_chart_type"),
+                        options=["donut", "bar"],
+                        default="donut",
+                        required=True,
+                        key="panel3_chart_type_value",
+                        format_func=lambda value: ui_text(
+                            "panel3_donut" if value == "donut" else "panel3_bar"
+                        ),
+                        width="stretch",
+                    )
+
+                    panel3_balance_data = source_data_for_subsystem(
+                        results,
+                        "BALANCO",
+                        panel3_subsystem_key,
+                    )
+                    panel3_timestamps = (
+                        pd.to_datetime(
+                            panel3_balance_data["din_instante"], errors="coerce"
+                        ).dropna()
+                        if "din_instante" in panel3_balance_data.columns
+                        else pd.Series(dtype="datetime64[ns]")
+                    )
+                    panel3_years = sorted(panel3_timestamps.dt.year.unique().astype(int).tolist())
+
+                    if not panel3_years:
+                        st.warning(ui_text("chart_no_data"))
+                    elif panel3_granularity == "yearly":
+                        if len(panel3_years) == 1:
+                            selected_year_start = selected_year_end = panel3_years[0]
+                            st.caption(
+                                f"{ui_text('panel3_year_range')}: **{panel3_years[0]}**"
+                            )
+                        else:
+                            stored_range = st.session_state.get("panel3_year_range_value")
+                            range_is_valid = (
+                                isinstance(stored_range, (tuple, list))
+                                and len(stored_range) == 2
+                                and stored_range[0] in panel3_years
+                                and stored_range[1] in panel3_years
+                                and stored_range[0] <= stored_range[1]
+                            )
+                            if not range_is_valid:
+                                default_start_index = max(0, len(panel3_years) - 6)
+                                st.session_state["panel3_year_range_value"] = (
+                                    panel3_years[default_start_index],
+                                    panel3_years[-1],
+                                )
+                            selected_year_start, selected_year_end = st.select_slider(
+                                ui_text("panel3_year_range"),
+                                options=panel3_years,
+                                key="panel3_year_range_value",
+                            )
+                        panel3_summary, _ = build_source_chart_summary(
+                            results=results,
+                            source="BALANCO",
+                            subsystem_key=panel3_subsystem_key,
+                            granularity="yearly",
+                            start_date=date(int(selected_year_start), 1, 1),
+                            end_date=date(int(selected_year_end), 12, 31),
+                        )
+                        panel3_data = prepare_source_participation(panel3_summary)
+                        panel3_ready = not panel3_data.empty
+                    else:
+                        if st.session_state.get("panel3_year_value") not in panel3_years:
+                            st.session_state["panel3_year_value"] = panel3_years[-1]
+                        selected_year = st.selectbox(
+                            ui_text("panel3_year"),
+                            options=panel3_years,
+                            key="panel3_year_value",
+                        )
+                        panel3_summary, _ = build_source_chart_summary(
+                            results=results,
+                            source="BALANCO",
+                            subsystem_key=panel3_subsystem_key,
+                            granularity="monthly",
+                            start_date=date(int(selected_year), 1, 1),
+                            end_date=date(int(selected_year), 12, 31),
+                        )
+                        available_months = (
+                            sorted(
+                                pd.to_datetime(
+                                    panel3_summary.get(PERIOD_COLUMN), errors="coerce"
+                                ).dropna().dt.month.unique().astype(int).tolist()
+                            )
+                            if not panel3_summary.empty
+                            else []
+                        )
+                        stored_months = st.session_state.get("panel3_months_value")
+                        valid_stored_months = (
+                            [month for month in stored_months if month in available_months]
+                            if isinstance(stored_months, list)
+                            else []
+                        )
+                        if not valid_stored_months and available_months:
+                            valid_stored_months = (
+                                available_months
+                                if len(available_months) <= 6
+                                else available_months[-6:]
+                            )
+                        st.session_state["panel3_months_value"] = valid_stored_months
+                        selected_months = st.multiselect(
+                            ui_text("panel3_months"),
+                            options=available_months,
+                            key="panel3_months_value",
+                            format_func=lambda month: participation_period_label(
+                                pd.Timestamp(year=int(selected_year), month=int(month), day=1),
+                                "monthly",
+                                language,
+                            ).rsplit(" ", 1)[0],
+                            help=ui_text("panel3_month_help"),
+                        )
+                        if selected_months:
+                            selected_periods = pd.to_datetime(
+                                panel3_summary[PERIOD_COLUMN], errors="coerce"
+                            )
+                            panel3_summary = panel3_summary.loc[
+                                selected_periods.dt.month.isin(selected_months)
+                            ].copy()
+                            panel3_data = prepare_source_participation(panel3_summary)
+                            panel3_ready = not panel3_data.empty
+
+                    st.info(ui_text("panel3_definition"), icon="ℹ️")
+
+            with panel3_columns[1]:
+                with st.container(border=True, key="panel3_chart_card"):
+                    if panel3_ready:
+                        panel3_figure = build_source_participation_chart(
+                            panel3_data,
+                            granularity=panel3_granularity,
+                            unit=panel3_unit,
+                            chart_type=panel3_chart_type,
+                            language_code=language,
+                        )
+                        st.plotly_chart(
+                            panel3_figure,
+                            width="stretch",
+                            key="panel3_participation_figure",
+                            config={
+                                "displaylogo": False,
+                                "modeBarButtonsToRemove": [
+                                    "lasso2d",
+                                    "select2d",
+                                    "autoScale2d",
+                                ],
+                            },
+                        )
+                    else:
+                        st.info(ui_text("panel3_no_periods"))
 
 # A rastreabilidade fica no último painel da página.
 with st.container(border=True, key="processed_files_panel"):
