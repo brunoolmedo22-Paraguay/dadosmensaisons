@@ -292,12 +292,13 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "panel3_year_range": "Intervalo de anos",
         "panel3_year": "Ano",
         "panel3_months": "Meses exibidos",
-        "panel3_month_help": "Selecione um ou mais meses para limitar a quantidade de roscas.",
+        "panel3_month_help": "Selecione quantos meses quiser exibir; todos ficam selecionados inicialmente.",
         "panel3_axis_percent": "Participação na geração (%)",
         "panel3_axis_mwmed": "Geração média (MWmed)",
         "panel3_total": "Geração total",
         "panel3_no_periods": "Não há períodos com geração positiva para a seleção.",
         "panel3_definition": "Participação calculada sobre a soma da geração hidráulica, térmica, eólica e solar.",
+        "panel3_download_svg": "Baixar Painel 3 em SVG",
         "processed_kicker": "Rastreabilidade",
         "processed_copy": "Relação dos arquivos anuais efetivamente utilizados no processamento.",
         "sin_ena_calculated_label": "SIN · ENA calculada",
@@ -463,12 +464,13 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "panel3_year_range": "Intervalo de años",
         "panel3_year": "Año",
         "panel3_months": "Meses mostrados",
-        "panel3_month_help": "Seleccione uno o más meses para limitar la cantidad de donas.",
+        "panel3_month_help": "Seleccione todos los meses que quiera mostrar; inicialmente quedan todos seleccionados.",
         "panel3_axis_percent": "Participación en la generación (%)",
         "panel3_axis_mwmed": "Generación media (MWmed)",
         "panel3_total": "Generación total",
         "panel3_no_periods": "No hay períodos con generación positiva para la selección.",
         "panel3_definition": "Participación calculada sobre la suma de la generación hidráulica, térmica, eólica y solar.",
+        "panel3_download_svg": "Descargar Panel 3 en SVG",
         "processed_kicker": "Trazabilidad",
         "processed_copy": "Relación de los archivos anuales utilizados efectivamente en el procesamiento.",
         "sin_ena_calculated_label": "SIN · ENA calculada",
@@ -2214,7 +2216,7 @@ def build_source_participation_chart(
     )
 
     if chart_type == "donut":
-        columns = min(3, max(len(periods), 1))
+        columns = min(4, max(len(periods), 1))
         rows = max(1, math.ceil(len(periods) / columns))
         specs = [
             [{"type": "domain"} if row * columns + column < len(periods) else None
@@ -2380,6 +2382,231 @@ def build_source_participation_chart(
         font={"family": "Arial, sans-serif", "color": "#17383b"},
     )
     return figure
+
+
+
+def _panel3_svg_number(value: float, *, decimals: int, language_code: str) -> str:
+    """Formata números no SVG com separadores adequados ao idioma."""
+    formatted = f"{float(value):,.{decimals}f}"
+    if language_code in {"PT", "ES"}:
+        formatted = formatted.replace(",", "__THOUSANDS__").replace(".", ",")
+        formatted = formatted.replace("__THOUSANDS__", ".")
+    return formatted
+
+
+def source_participation_svg(
+    data: pd.DataFrame,
+    *,
+    granularity: Literal["monthly", "yearly"],
+    unit: Literal["percent", "mwmed"],
+    chart_type: Literal["donut", "bar"],
+    language_code: str,
+) -> bytes:
+    """Gera uma versão vetorial independente do gráfico do Painel 3."""
+    if data.empty:
+        return b""
+
+    frame = data.copy()
+    frame[PERIOD_COLUMN] = pd.to_datetime(frame[PERIOD_COLUMN], errors="coerce")
+    frame = frame.dropna(subset=[PERIOD_COLUMN]).sort_values(
+        [PERIOD_COLUMN, PARTICIPATION_SOURCE_COLUMN], kind="stable"
+    )
+    periods = list(frame[PERIOD_COLUMN].drop_duplicates())
+    if not periods:
+        return b""
+
+    source_labels = {
+        source_key: panel2_source_label(source_key, language_code)
+        for source_key in SOURCE_KEYS
+    }
+    source_colors = {
+        source_key: panel2_component_style(source_key)["svg"]
+        for source_key in SOURCE_KEYS
+    }
+    title = html.escape(UI_TEXT[language_code]["panel3_title"])
+    unit_label = html.escape(UI_TEXT[language_code][
+        "panel3_axis_percent" if unit == "percent" else "panel3_axis_mwmed"
+    ])
+
+    def period_values(period: pd.Timestamp) -> tuple[list[float], list[float]]:
+        period_data = frame.loc[frame[PERIOD_COLUMN].eq(period)].set_index(
+            PARTICIPATION_SOURCE_COLUMN
+        )
+        mw_values = [
+            float(period_data.at[source_key, PARTICIPATION_VALUE_COLUMN])
+            if source_key in period_data.index else 0.0
+            for source_key in SOURCE_KEYS
+        ]
+        percent_values = [
+            float(period_data.at[source_key, PARTICIPATION_PERCENT_COLUMN])
+            if source_key in period_data.index else 0.0
+            for source_key in SOURCE_KEYS
+        ]
+        return mw_values, percent_values
+
+    if chart_type == "donut":
+        columns = min(4, max(1, len(periods)))
+        rows = max(1, math.ceil(len(periods) / columns))
+        cell_width = 290
+        cell_height = 285
+        margin_x = 54
+        header_height = 112
+        legend_height = 58
+        width = max(900, margin_x * 2 + columns * cell_width)
+        height = header_height + rows * cell_height + legend_height
+        radius = 86
+        ring_width = 38
+        nodes = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+            '<rect width="100%" height="100%" fill="#ffffff"/>',
+            f'<text x="{width/2:.1f}" y="34" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#17383b">{title}</text>',
+            f'<text x="{width/2:.1f}" y="58" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#526164">{unit_label}</text>',
+        ]
+        legend_item_width = max(170, (width - 80) / len(SOURCE_KEYS))
+        for index, source_key in enumerate(SOURCE_KEYS):
+            legend_x = 40 + index * legend_item_width
+            nodes.extend([
+                f'<rect x="{legend_x:.1f}" y="78" width="15" height="11" rx="2" fill="{source_colors[source_key]}"/>',
+                f'<text x="{legend_x + 22:.1f}" y="88" font-family="Arial, sans-serif" font-size="12" fill="#314b4e">{html.escape(source_labels[source_key])}</text>',
+            ])
+
+        for index, period in enumerate(periods):
+            row = index // columns
+            column = index % columns
+            cx = margin_x + column * cell_width + cell_width / 2
+            cy = header_height + row * cell_height + 118
+            mw_values, percent_values = period_values(period)
+            total_mw = sum(mw_values)
+            period_label = html.escape(
+                participation_period_label(period, granularity, language_code)
+            )
+            nodes.append(
+                f'<text x="{cx:.1f}" y="{cy-radius-25:.1f}" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" font-weight="700" fill="#17383b">{period_label}</text>'
+            )
+            nodes.append(
+                f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{radius}" fill="none" stroke="#edf2f3" stroke-width="{ring_width}"/>'
+            )
+            cumulative = 0.0
+            for source_key, mw_value, percent_value in zip(
+                SOURCE_KEYS, mw_values, percent_values
+            ):
+                if percent_value <= 0:
+                    continue
+                circumference = 2 * math.pi * radius
+                dash_length = circumference * percent_value / 100.0
+                gap_length = max(0.0, circumference - dash_length)
+                dash_offset = -circumference * cumulative / 100.0
+                nodes.append(
+                    f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{radius}" fill="none" '
+                    f'stroke="{source_colors[source_key]}" stroke-width="{ring_width}" '
+                    f'stroke-dasharray="{dash_length:.6f} {gap_length:.6f}" '
+                    f'stroke-dashoffset="{dash_offset:.6f}" transform="rotate(-90 {cx:.1f} {cy:.1f})"/>'
+                )
+                if percent_value >= 4.0:
+                    middle_angle = math.radians(-90 + (cumulative + percent_value / 2) * 3.6)
+                    label_radius = radius
+                    label_x = cx + math.cos(middle_angle) * label_radius
+                    label_y = cy + math.sin(middle_angle) * label_radius + 4
+                    label_text = (
+                        f'{_panel3_svg_number(percent_value, decimals=1, language_code=language_code)}%'
+                        if unit == "percent"
+                        else _panel3_svg_number(mw_value, decimals=0, language_code=language_code)
+                    )
+                    nodes.append(
+                        f'<text x="{label_x:.1f}" y="{label_y:.1f}" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="700" fill="#17383b">{html.escape(label_text)}</text>'
+                    )
+                cumulative += percent_value
+            center_value = (
+                "100%"
+                if unit == "percent"
+                else f'{_panel3_svg_number(total_mw, decimals=0, language_code=language_code)} MWmed'
+            )
+            nodes.extend([
+                f'<text x="{cx:.1f}" y="{cy-2:.1f}" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#17383b">{html.escape(center_value)}</text>',
+                f'<text x="{cx:.1f}" y="{cy+17:.1f}" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#65777a">{html.escape(UI_TEXT[language_code]["panel3_total"])}</text>',
+            ])
+        nodes.append('</svg>')
+        return "".join(nodes).encode("utf-8")
+
+    period_labels = [
+        participation_period_label(period, granularity, language_code)
+        for period in periods
+    ]
+    width = max(1000, 190 + len(periods) * 82)
+    height = 650
+    left = 92
+    right = 42
+    top = 112
+    bottom = 128
+    plot_width = width - left - right
+    plot_height = height - top - bottom
+    period_payload = [period_values(period) for period in periods]
+    displayed_totals = [
+        100.0 if unit == "percent" else sum(mw_values)
+        for mw_values, _ in period_payload
+    ]
+    y_max = 100.0 if unit == "percent" else max(displayed_totals) * 1.08
+    if y_max <= 0:
+        y_max = 1.0
+    y_ticks = 5
+    bar_slot = plot_width / max(1, len(periods))
+    bar_width = min(58.0, bar_slot * 0.70)
+    nodes = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+        '<rect width="100%" height="100%" fill="#ffffff"/>',
+        f'<text x="{width/2:.1f}" y="34" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#17383b">{title}</text>',
+    ]
+    legend_item_width = min(230, (width - 100) / len(SOURCE_KEYS))
+    for index, source_key in enumerate(SOURCE_KEYS):
+        legend_x = 50 + index * legend_item_width
+        nodes.extend([
+            f'<rect x="{legend_x:.1f}" y="62" width="15" height="11" rx="2" fill="{source_colors[source_key]}"/>',
+            f'<text x="{legend_x + 22:.1f}" y="72" font-family="Arial, sans-serif" font-size="12" fill="#314b4e">{html.escape(source_labels[source_key])}</text>',
+        ])
+    for tick_index in range(y_ticks + 1):
+        tick_value = y_max * tick_index / y_ticks
+        y = top + plot_height - (tick_value / y_max) * plot_height
+        tick_label = _panel3_svg_number(
+            tick_value,
+            decimals=0 if unit == "mwmed" else 0,
+            language_code=language_code,
+        ) + ("%" if unit == "percent" else "")
+        nodes.extend([
+            f'<line x1="{left}" y1="{y:.1f}" x2="{width-right}" y2="{y:.1f}" stroke="#dde7e8" stroke-width="1"/>',
+            f'<text x="{left-10}" y="{y+4:.1f}" text-anchor="end" font-family="Arial, sans-serif" font-size="11" fill="#526164">{html.escape(tick_label)}</text>',
+        ])
+    nodes.extend([
+        f'<line x1="{left}" y1="{top}" x2="{left}" y2="{top+plot_height}" stroke="#a5b6b8" stroke-width="1.2"/>',
+        f'<line x1="{left}" y1="{top+plot_height}" x2="{width-right}" y2="{top+plot_height}" stroke="#a5b6b8" stroke-width="1.2"/>',
+        f'<text x="24" y="{top+plot_height/2:.1f}" transform="rotate(-90 24 {top+plot_height/2:.1f})" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#526164">{unit_label}</text>',
+    ])
+    for index, (period_label, payload) in enumerate(zip(period_labels, period_payload)):
+        mw_values, percent_values = payload
+        values = percent_values if unit == "percent" else mw_values
+        x = left + bar_slot * index + (bar_slot - bar_width) / 2
+        cumulative = 0.0
+        for source_key, value in zip(SOURCE_KEYS, values):
+            if value <= 0:
+                continue
+            rect_height = value / y_max * plot_height
+            y = top + plot_height - (cumulative + value) / y_max * plot_height
+            nodes.append(
+                f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_width:.1f}" height="{rect_height:.1f}" fill="{source_colors[source_key]}" stroke="#ffffff" stroke-width="0.8"/>'
+            )
+            cumulative += value
+        label_x = x + bar_width / 2
+        label_y = top + plot_height + 18
+        safe_label = html.escape(period_label)
+        if len(periods) > 8:
+            nodes.append(
+                f'<text x="{label_x:.1f}" y="{label_y:.1f}" text-anchor="end" transform="rotate(-42 {label_x:.1f} {label_y:.1f})" font-family="Arial, sans-serif" font-size="10" fill="#526164">{safe_label}</text>'
+            )
+        else:
+            nodes.append(
+                f'<text x="{label_x:.1f}" y="{label_y:.1f}" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="#526164">{safe_label}</text>'
+            )
+    nodes.append('</svg>')
+    return "".join(nodes).encode("utf-8")
 
 
 def render_chart_controls_and_exports(
@@ -3649,24 +3876,33 @@ with st.container(border=True, key="charts_panel"):
                                 f"{ui_text('panel3_year_range')}: **{panel3_years[0]}**"
                             )
                         else:
-                            stored_range = st.session_state.get("panel3_year_range_value")
-                            range_is_valid = (
-                                isinstance(stored_range, (tuple, list))
-                                and len(stored_range) == 2
-                                and stored_range[0] in panel3_years
-                                and stored_range[1] in panel3_years
-                                and stored_range[0] <= stored_range[1]
-                            )
-                            if not range_is_valid:
-                                default_start_index = max(0, len(panel3_years) - 6)
-                                st.session_state["panel3_year_range_value"] = (
-                                    panel3_years[default_start_index],
-                                    panel3_years[-1],
+                            def _valid_panel3_year_range(value: Any) -> bool:
+                                return (
+                                    isinstance(value, (tuple, list))
+                                    and len(value) == 2
+                                    and value[0] in panel3_years
+                                    and value[1] in panel3_years
+                                    and value[0] <= value[1]
                                 )
+
+                            slider_key = "panel3_year_range_slider"
+                            slider_range = st.session_state.get(slider_key)
+                            saved_range = st.session_state.get("panel3_year_range_value")
+                            if not _valid_panel3_year_range(slider_range):
+                                initial_range = (
+                                    tuple(saved_range)
+                                    if _valid_panel3_year_range(saved_range)
+                                    else (panel3_years[0], panel3_years[-1])
+                                )
+                                st.session_state[slider_key] = initial_range
                             selected_year_start, selected_year_end = st.select_slider(
                                 ui_text("panel3_year_range"),
                                 options=panel3_years,
-                                key="panel3_year_range_value",
+                                key=slider_key,
+                            )
+                            st.session_state["panel3_year_range_value"] = (
+                                int(selected_year_start),
+                                int(selected_year_end),
                             )
                         panel3_summary, _ = build_source_chart_summary(
                             results=results,
@@ -3703,19 +3939,16 @@ with st.container(border=True, key="charts_panel"):
                             if not panel3_summary.empty
                             else []
                         )
+                        months_state_exists = "panel3_months_value" in st.session_state
                         stored_months = st.session_state.get("panel3_months_value")
-                        valid_stored_months = (
-                            [month for month in stored_months if month in available_months]
-                            if isinstance(stored_months, list)
-                            else []
-                        )
-                        if not valid_stored_months and available_months:
-                            valid_stored_months = (
-                                available_months
-                                if len(available_months) <= 6
-                                else available_months[-6:]
-                            )
-                        st.session_state["panel3_months_value"] = valid_stored_months
+                        if not months_state_exists or not isinstance(stored_months, list):
+                            st.session_state["panel3_months_value"] = list(available_months)
+                        else:
+                            valid_stored_months = [
+                                month for month in stored_months if month in available_months
+                            ]
+                            if valid_stored_months != stored_months:
+                                st.session_state["panel3_months_value"] = valid_stored_months
                         selected_months = st.multiselect(
                             ui_text("panel3_months"),
                             options=available_months,
@@ -3761,6 +3994,34 @@ with st.container(border=True, key="charts_panel"):
                                     "autoScale2d",
                                 ],
                             },
+                        )
+                        panel3_svg = source_participation_svg(
+                            panel3_data,
+                            granularity=panel3_granularity,
+                            unit=panel3_unit,
+                            chart_type=panel3_chart_type,
+                            language_code=language,
+                        )
+                        panel3_periods = pd.to_datetime(
+                            panel3_data[PERIOD_COLUMN], errors="coerce"
+                        ).dropna()
+                        period_slug = (
+                            f"{panel3_periods.min():%Y%m}-{panel3_periods.max():%Y%m}"
+                            if panel3_granularity == "monthly"
+                            else f"{panel3_periods.min():%Y}-{panel3_periods.max():%Y}"
+                        )
+                        st.download_button(
+                            ui_text("panel3_download_svg"),
+                            data=panel3_svg,
+                            file_name=(
+                                "participacao_fontes_"
+                                f"{subsystem_slug(panel3_subsystem_key)}_"
+                                f"{panel3_granularity}_{panel3_chart_type}_"
+                                f"{panel3_unit}_{period_slug}.svg"
+                            ),
+                            mime="image/svg+xml",
+                            width="stretch",
+                            key="panel3_download_svg_button",
                         )
                     else:
                         st.info(ui_text("panel3_no_periods"))

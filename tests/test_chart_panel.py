@@ -314,7 +314,8 @@ def test_panel3_participation_controls_and_charts_are_present() -> None:
     assert 'key="panel3_unit_value"' in source
     assert 'key="panel3_chart_type_value"' in source
     assert source.count('st.segmented_control(') >= 2
-    assert 'key="panel3_year_range_value"' in source
+    assert 'key=slider_key' in source
+    assert 'slider_key = "panel3_year_range_slider"' in source
     assert 'key="panel3_months_value"' in source
     assert 'build_source_participation_chart(' in source
     assert 'go.Pie(' in source
@@ -322,10 +323,32 @@ def test_panel3_participation_controls_and_charts_are_present() -> None:
     assert 'barmode="stack"' in source
 
 
-def test_panel3_defaults_to_recent_periods_and_allows_month_selection() -> None:
+def test_panel3_defaults_to_all_periods_and_allows_month_selection() -> None:
     source = APP_PATH.read_text(encoding="utf-8")
-    assert 'default_start_index = max(0, len(panel3_years) - 6)' in source
-    assert 'available_months[-6:]' in source
+    assert 'else (panel3_years[0], panel3_years[-1])' in source
+    assert 'st.session_state["panel3_months_value"] = list(available_months)' in source
+    assert 'default_start_index = max(0, len(panel3_years) - 6)' not in source
+    assert 'available_months[-6:]' not in source
     assert 'st.multiselect(' in source
     assert 'prepare_source_participation(panel3_summary)' in source
     assert 'panel3_definition' in source
+
+
+def test_panel3_has_independent_svg_export() -> None:
+    source = APP_PATH.read_text(encoding="utf-8")
+    assert 'def source_participation_svg(' in source
+    assert 'ui_text("panel3_download_svg")' in source
+    assert 'key="panel3_download_svg_button"' in source
+    assert 'mime="image/svg+xml"' in source
+    assert 'panel3_chart_type' in source
+    assert 'panel3_unit' in source
+
+
+def test_panel3_does_not_overwrite_valid_slider_state() -> None:
+    source = APP_PATH.read_text(encoding="utf-8")
+    annual_start = source.index('elif panel3_granularity == "yearly":')
+    annual_end = source.index('panel3_summary, _ = build_source_chart_summary(', annual_start)
+    annual_source = source[annual_start:annual_end]
+    assert 'if not _valid_panel3_year_range(slider_range):' in annual_source
+    assert 'st.session_state[slider_key] = initial_range' in annual_source
+    assert annual_source.count('st.session_state[slider_key] =') == 1
