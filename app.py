@@ -44,6 +44,7 @@ from power_panel_v2 import (
     prepare_power_panel_data,
     prepare_source_participation,
 )
+from sistema_dat import SistemaDatData, SistemaDatError, parse_sistema_dat
 
 
 Granularity = _unified.Granularity
@@ -172,6 +173,69 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "year_range": "Ano inicial e ano final",
         "download_ons": "Baixar dados do ONS",
         "source_note": "Fontes oficiais do ONS · Parquet com fallback CSV para ENA histórica · Processamento temporário",
+        "newave_kicker": "Entrada NEWAVE",
+        "newave_upload_title": "Carregar sistema.dat",
+        "newave_upload_copy": (
+            "Envie o sistema.dat do estudo que deseja analisar. O horizonte, os meses, "
+            "os subsistemas e os blocos são identificados automaticamente em cada arquivo."
+        ),
+        "newave_uploader": "Arquivo sistema.dat",
+        "newave_uploader_help": "Arquivo de texto sistema.dat pertencente ao deck do NEWAVE.",
+        "newave_loaded": "{name} validado · {size} · análise atualizada automaticamente.",
+        "newave_invalid": "Não foi possível ler o arquivo: {error}",
+        "newave_analysis_kicker": "Leitura estrutural do deck",
+        "newave_analysis_title": "Análise do sistema.dat",
+        "newave_analysis_copy": (
+            "Mercado, geração não simulada, MMGD, custos de déficit e limites de "
+            "intercâmbio extraídos diretamente do arquivo carregado."
+        ),
+        "newave_tab_overview": "CARGA E GERAÇÃO",
+        "newave_tab_interchange": "INTERCÂMBIOS",
+        "newave_tab_data": "DADOS DO ARQUIVO",
+        "newave_period": "Horizonte detectado",
+        "newave_months": "Meses válidos",
+        "newave_peak": "Pico da carga global",
+        "newave_market_growth": "Crescimento do mercado",
+        "newave_mmgd_share": "MMGD na carga final",
+        "newave_figure_title": "Carga global e geração mensal agregada",
+        "newave_figure_copy": (
+            "Clique em uma série da legenda para exibi-la ou ocultá-la. Use a barra do gráfico "
+            "para ampliar, mover, restabelecer a vista ou baixar o PNG."
+        ),
+        "newave_axis": "Potência média (MWmed)",
+        "newave_global_load": "Carga global",
+        "newave_market_sin": "Mercado SIN",
+        "newave_mmgd_total": "MMGD total",
+        "newave_wind_central": "Eólica central",
+        "newave_solar_central": "Solar central",
+        "newave_pch_central": "PCH central",
+        "newave_pct_central": "PCT central",
+        "newave_wind_mmgd": "Eólica MMGD",
+        "newave_solar_mmgd": "Solar MMGD",
+        "newave_only_load": "Só carga global",
+        "newave_show_all": "Mostrar todas",
+        "newave_restore": "Restabelecer",
+        "newave_formula_note": "Carga global = Mercado SIN + PCH, PCT, eólica e solar da MMGD.",
+        "newave_visible_period": "Período visível: {start} a {end} ({months} meses).",
+        "newave_download_summary": "Baixar série mensal em CSV",
+        "newave_interchange_title": "Limites mensais de intercâmbio",
+        "newave_interchange_copy": (
+            "Compare os dois sentidos de cada ligação. O valor 99.999 é tratado como "
+            "marcador de limite não restritivo, e não como capacidade física."
+        ),
+        "newave_link_selector": "Ligação",
+        "newave_interchange_axis": "Limite de intercâmbio (MW)",
+        "newave_unbounded_note": "{count} registro(s) 99.999 identificado(s) como sem limite restritivo.",
+        "newave_no_interchange": "Não há limites de intercâmbio utilizáveis neste arquivo.",
+        "newave_data_title": "Inspeção dos parâmetros extraídos",
+        "newave_data_copy": "Escolha um mês para conferir o mercado e a geração por subsistema.",
+        "newave_reference_month": "Mês de referência",
+        "newave_market_table": "Mercado de energia total",
+        "newave_generation_table": "Geração de usinas não simuladas",
+        "newave_deficit_table": "Custo do déficit",
+        "newave_download_market": "Baixar mercado em CSV",
+        "newave_download_generation": "Baixar geração em CSV",
+        "newave_download_interchanges": "Baixar intercâmbios em CSV",
         "flow_kicker": "Fluxo da plataforma",
         "flow_title": "O que será feito?",
         "flow_lead": (
@@ -344,6 +408,69 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "year_range": "Año inicial y año final",
         "download_ons": "Descargar datos del ONS",
         "source_note": "Fuentes oficiales del ONS · Parquet con respaldo CSV para ENA histórica · Procesamiento temporal",
+        "newave_kicker": "Entrada NEWAVE",
+        "newave_upload_title": "Cargar sistema.dat",
+        "newave_upload_copy": (
+            "Suba el sistema.dat del estudio que desea analizar. El horizonte, los meses, "
+            "los subsistemas y los bloques se identifican automáticamente en cada archivo."
+        ),
+        "newave_uploader": "Archivo sistema.dat",
+        "newave_uploader_help": "Archivo de texto sistema.dat perteneciente al deck de NEWAVE.",
+        "newave_loaded": "{name} validado · {size} · análisis actualizado automáticamente.",
+        "newave_invalid": "No fue posible leer el archivo: {error}",
+        "newave_analysis_kicker": "Lectura estructural del deck",
+        "newave_analysis_title": "Análisis del sistema.dat",
+        "newave_analysis_copy": (
+            "Mercado, generación no simulada, MMGD, costos de déficit y límites de "
+            "intercambio extraídos directamente del archivo cargado."
+        ),
+        "newave_tab_overview": "CARGA Y GENERACIÓN",
+        "newave_tab_interchange": "INTERCAMBIOS",
+        "newave_tab_data": "DATOS DEL ARCHIVO",
+        "newave_period": "Horizonte detectado",
+        "newave_months": "Meses válidos",
+        "newave_peak": "Pico de carga global",
+        "newave_market_growth": "Crecimiento del mercado",
+        "newave_mmgd_share": "MMGD en la carga final",
+        "newave_figure_title": "Carga global y generación mensual agregada",
+        "newave_figure_copy": (
+            "Haga clic en una serie de la leyenda para mostrarla u ocultarla. Use la barra del gráfico "
+            "para ampliar, mover, restablecer la vista o descargar el PNG."
+        ),
+        "newave_axis": "Potencia media (MWmed)",
+        "newave_global_load": "Carga global",
+        "newave_market_sin": "Mercado SIN",
+        "newave_mmgd_total": "MMGD total",
+        "newave_wind_central": "Eólica central",
+        "newave_solar_central": "Solar central",
+        "newave_pch_central": "PCH central",
+        "newave_pct_central": "PCT central",
+        "newave_wind_mmgd": "Eólica MMGD",
+        "newave_solar_mmgd": "Solar MMGD",
+        "newave_only_load": "Solo carga global",
+        "newave_show_all": "Mostrar todas",
+        "newave_restore": "Restablecer",
+        "newave_formula_note": "Carga global = Mercado SIN + PCH, PCT, eólica y solar de la MMGD.",
+        "newave_visible_period": "Período visible: {start} a {end} ({months} meses).",
+        "newave_download_summary": "Descargar serie mensual en CSV",
+        "newave_interchange_title": "Límites mensuales de intercambio",
+        "newave_interchange_copy": (
+            "Compare ambos sentidos de cada enlace. El valor 99.999 se trata como "
+            "marcador de límite no restrictivo, no como capacidad física."
+        ),
+        "newave_link_selector": "Enlace",
+        "newave_interchange_axis": "Límite de intercambio (MW)",
+        "newave_unbounded_note": "{count} registro(s) 99.999 identificado(s) como límite no restrictivo.",
+        "newave_no_interchange": "No hay límites de intercambio utilizables en este archivo.",
+        "newave_data_title": "Inspección de los parámetros extraídos",
+        "newave_data_copy": "Seleccione un mes para comprobar el mercado y la generación por subsistema.",
+        "newave_reference_month": "Mes de referencia",
+        "newave_market_table": "Mercado de energía total",
+        "newave_generation_table": "Generación de plantas no simuladas",
+        "newave_deficit_table": "Costo del déficit",
+        "newave_download_market": "Descargar mercado en CSV",
+        "newave_download_generation": "Descargar generación en CSV",
+        "newave_download_interchanges": "Descargar intercambios en CSV",
         "flow_kicker": "Flujo de la plataforma",
         "flow_title": "¿Qué se hará?",
         "flow_lead": (
@@ -713,6 +840,114 @@ st.markdown(
             min-height: 20.25rem;
             padding: 1.15rem 1.25rem;
             box-shadow: none;
+        }
+        .st-key-newave_upload_panel {
+            background: color-mix(in srgb, var(--brand) 5%, var(--surface));
+            border: 1px solid color-mix(in srgb, var(--brand) 24%, transparent) !important;
+            border-left: 4px solid var(--brand) !important;
+            border-radius: 16px;
+            padding: .85rem 1rem .9rem;
+            margin: .2rem 0 .35rem;
+            box-shadow: none;
+        }
+        .st-key-newave_upload_panel [data-testid="stVerticalBlock"] {
+            gap: .28rem;
+        }
+        .st-key-newave_upload_panel h2 {
+            margin: 0 0 .08rem !important;
+            font-size: 1.15rem;
+        }
+        .st-key-newave_upload_panel [data-testid="stFileUploader"] section {
+            min-height: 4.55rem;
+            padding: .55rem .75rem;
+            border: 1px dashed color-mix(in srgb, var(--brand) 46%, transparent);
+            border-radius: 12px;
+            background: color-mix(in srgb, var(--surface) 86%, transparent);
+        }
+        .st-key-newave_upload_panel [data-testid="stFileUploader"] small {
+            color: var(--muted);
+        }
+        .st-key-newave_analysis_panel {
+            background: var(--surface);
+            border: none !important;
+            border-radius: 18px;
+            padding: .9rem 1rem 1rem;
+            margin: .45rem 0 .65rem;
+            box-shadow: 0 8px 24px var(--soft-shadow);
+        }
+        .st-key-newave_analysis_panel h2,
+        .st-key-newave_analysis_panel h3 {
+            margin-top: 0 !important;
+            margin-bottom: .2rem !important;
+        }
+        .st-key-newave_analysis_panel [data-testid="stMetric"] {
+            min-height: 5.25rem;
+            padding: .7rem .78rem;
+            border: 1px solid color-mix(in srgb, var(--text-color) 9%, transparent);
+            background: color-mix(in srgb, var(--secondary-background-color) 88%, var(--background-color));
+        }
+        .st-key-newave_analysis_panel [data-testid="stMetricLabel"] p {
+            color: var(--muted);
+            font-size: .73rem;
+            line-height: 1.18;
+        }
+        .st-key-newave_analysis_panel [data-testid="stMetricValue"] {
+            color: var(--ink);
+            font-size: 1.2rem;
+        }
+        .st-key-newave_analysis_panel [data-testid="stMetricDelta"] {
+            font-size: .68rem;
+        }
+        .st-key-newave_analysis_panel [data-baseweb="tab-list"] {
+            gap: 0;
+            margin: .35rem 0 .55rem;
+            border-bottom: 1px solid color-mix(in srgb, var(--text-color) 15%, transparent);
+        }
+        .st-key-newave_analysis_panel button[data-baseweb="tab"] {
+            min-width: 10rem;
+            height: 2.3rem;
+            padding: .25rem 1rem;
+            border: 1px solid color-mix(in srgb, var(--text-color) 14%, transparent);
+            border-bottom: none;
+            border-radius: 8px 8px 0 0;
+            background: color-mix(in srgb, var(--secondary-background-color) 92%, var(--background-color));
+            color: var(--muted);
+            font-size: .76rem;
+            font-weight: 720;
+            letter-spacing: .025em;
+        }
+        .st-key-newave_analysis_panel button[data-baseweb="tab"][aria-selected="true"] {
+            background: var(--surface);
+            color: var(--ink);
+            box-shadow: inset 0 3px 0 var(--brand);
+        }
+        .st-key-newave_analysis_panel [data-baseweb="tab-highlight"] {
+            display: none;
+        }
+        .newave-file-meta {
+            display: inline-flex;
+            align-items: center;
+            gap: .4rem;
+            color: var(--brand-readable);
+            font-size: .78rem;
+            font-weight: 650;
+            margin-top: .08rem;
+        }
+        .newave-file-dot {
+            width: .5rem;
+            height: .5rem;
+            border-radius: 50%;
+            background: #28a56a;
+            box-shadow: 0 0 0 3px color-mix(in srgb, #28a56a 15%, transparent);
+        }
+        .newave-definition {
+            margin: .1rem 0 .35rem;
+            padding: .55rem .7rem;
+            border-left: 3px solid var(--brand);
+            border-radius: 8px;
+            background: color-mix(in srgb, var(--brand) 7%, transparent);
+            color: var(--muted);
+            font-size: .8rem;
         }
         /* Mantém o seletor Balanço/EAR/ENA alinhado à identidade visual do título. */
         .st-key-source_selection_panel button[aria-pressed="true"] {
@@ -2907,6 +3142,523 @@ def ena_has_calculated_sin(results: dict[DataSource, Any]) -> bool:
     return bool((daily["__subsystem_key"].eq("SIN") & calculated).any())
 
 
+SISTEMA_MONTHS: dict[str, tuple[str, ...]] = {
+    "PT": ("Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"),
+    "ES": ("Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"),
+}
+
+
+def sistema_month_label(value: Any, language_code: str, *, long_year: bool = True) -> str:
+    timestamp = pd.Timestamp(value)
+    month = SISTEMA_MONTHS[language_code][timestamp.month - 1]
+    year_format = "%Y" if long_year else "%y"
+    return f"{month}/{timestamp.strftime(year_format)}"
+
+
+def sistema_number(value: float, *, decimals: int = 0) -> str:
+    formatted = f"{float(value):,.{decimals}f}"
+    return formatted.replace(",", "§").replace(".", ",").replace("§", ".")
+
+
+def sistema_file_size(size: int) -> str:
+    if size >= 1024 * 1024:
+        return f"{size / (1024 * 1024):.1f} MB".replace(".", ",")
+    return f"{size / 1024:.1f} KB".replace(".", ",")
+
+
+def sistema_csv_bytes(data: pd.DataFrame) -> bytes:
+    export = data.copy()
+    for column in export.columns:
+        if pd.api.types.is_datetime64_any_dtype(export[column]):
+            export[column] = export[column].dt.strftime("%d/%m/%Y")
+    return export.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig")
+
+
+def build_sistema_overview_figure(
+    summary: pd.DataFrame,
+    language_code: str,
+) -> go.Figure:
+    series = [
+        ("global_load_mwmed", "newave_global_load", "#DF473D", 3.1, True),
+        ("market_sin_mwmed", "newave_market_sin", "#2E73B8", 2.7, True),
+        ("mmgd_total_mwmed", "newave_mmgd_total", "#7A2CB3", 2.3, True),
+        ("wind_central_mwmed", "newave_wind_central", "#2E7D3D", 2.3, True),
+        ("solar_central_mwmed", "newave_solar_central", "#F2A521", 2.3, True),
+        ("pch_central_mwmed", "newave_pch_central", "#84C6C1", 2.0, False),
+        ("thermal_central_mwmed", "newave_pct_central", "#B7AFAB", 2.0, False),
+        ("wind_mmgd_mwmed", "newave_wind_mmgd", "#43A45B", 2.0, True),
+        ("solar_mmgd_mwmed", "newave_solar_mmgd", "#F28A00", 2.0, True),
+    ]
+    dates = pd.to_datetime(summary["date"])
+    hover_dates = [sistema_month_label(value, language_code) for value in dates]
+    figure = go.Figure()
+    default_visibility: list[bool | str] = []
+
+    for column, label_key, color, width, visible_by_default in series:
+        visible: bool | str = True if visible_by_default else "legendonly"
+        default_visibility.append(visible)
+        figure.add_trace(
+            go.Scatter(
+                x=dates,
+                y=summary[column],
+                mode="lines",
+                name=ui_text(label_key),
+                line={"color": color, "width": width},
+                visible=visible,
+                customdata=hover_dates,
+                hovertemplate=(
+                    "%{customdata}<br>%{y:,.2f} MWmed"
+                    "<extra>%{fullData.name}</extra>"
+                ),
+            )
+        )
+
+    tick_dates = list(dates.iloc[::4])
+    if dates.iloc[-1] not in tick_dates:
+        tick_dates.append(dates.iloc[-1])
+    tick_text = [sistema_month_label(value, language_code, long_year=False) for value in tick_dates]
+    figure.update_layout(
+        height=560,
+        margin={"l": 26, "r": 18, "t": 112, "b": 48},
+        paper_bgcolor="#ffffff",
+        plot_bgcolor="#ffffff",
+        separators=",.",
+        hovermode="x unified",
+        dragmode="pan",
+        uirevision=f"sistema-dat-{dates.iloc[0]:%Y%m}-{dates.iloc[-1]:%Y%m}",
+        font={"family": "Arial, sans-serif", "color": "#17383b"},
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.08,
+            "xanchor": "left",
+            "x": 0.0,
+            "font": {"size": 11},
+            "itemclick": "toggle",
+            "itemdoubleclick": "toggleothers",
+        },
+        updatemenus=[
+            {
+                "type": "buttons",
+                "direction": "right",
+                "x": 1.0,
+                "xanchor": "right",
+                "y": 1.29,
+                "yanchor": "top",
+                "showactive": False,
+                "pad": {"r": 0, "t": 0},
+                "font": {"size": 11},
+                "buttons": [
+                    {
+                        "label": ui_text("newave_only_load"),
+                        "method": "update",
+                        "args": [{"visible": [True] + [False] * (len(series) - 1)}],
+                    },
+                    {
+                        "label": ui_text("newave_show_all"),
+                        "method": "update",
+                        "args": [{"visible": [True] * len(series)}],
+                    },
+                    {
+                        "label": ui_text("newave_restore"),
+                        "method": "update",
+                        "args": [{"visible": default_visibility}],
+                    },
+                ],
+            }
+        ],
+        xaxis={
+            "tickmode": "array",
+            "tickvals": tick_dates,
+            "ticktext": tick_text,
+            "showgrid": False,
+            "showline": True,
+            "linecolor": "#c7d3d5",
+            "tickfont": {"size": 11, "color": "#5b6b81"},
+            "showspikes": True,
+            "spikemode": "across",
+            "spikesnap": "cursor",
+            "spikecolor": "#738689",
+        },
+        yaxis={
+            "title": {"text": ui_text("newave_axis")},
+            "rangemode": "tozero",
+            "tickformat": ",.0f",
+            "gridcolor": "#e2e8ee",
+            "zeroline": True,
+            "zerolinecolor": "#c7d3d5",
+            "showline": False,
+            "tickfont": {"size": 11, "color": "#5b6b81"},
+        },
+    )
+    return figure
+
+
+def build_sistema_interchange_figure(
+    interchanges: pd.DataFrame,
+    pair: tuple[int, int],
+    language_code: str,
+) -> go.Figure:
+    first_code, second_code = pair
+    names: dict[int, str] = {}
+    for row in interchanges.itertuples(index=False):
+        names[int(row.origin_code)] = str(row.origin)
+        names[int(row.destination_code)] = str(row.destination)
+
+    figure = go.Figure()
+    colors = ("#007D82", "#DF473D")
+    bounded_points = 0
+    for color, (origin, destination) in zip(
+        colors,
+        ((first_code, second_code), (second_code, first_code)),
+    ):
+        direction = interchanges.loc[
+            interchanges["origin_code"].eq(origin)
+            & interchanges["destination_code"].eq(destination)
+        ].sort_values("date", kind="stable")
+        if direction.empty:
+            continue
+        y_values = direction["limit_mw"].mask(direction["is_unbounded"])
+        bounded_points += int(y_values.notna().sum())
+        figure.add_trace(
+            go.Scatter(
+                x=direction["date"],
+                y=y_values,
+                mode="lines",
+                name=f"{names.get(origin, origin)} → {names.get(destination, destination)}",
+                line={"color": color, "width": 2.5},
+                customdata=[
+                    sistema_month_label(value, language_code)
+                    for value in direction["date"]
+                ],
+                hovertemplate=(
+                    "%{customdata}<br>%{y:,.0f} MW"
+                    "<extra>%{fullData.name}</extra>"
+                ),
+                connectgaps=False,
+            )
+        )
+
+    pair_data = interchanges.loc[
+        interchanges["origin_code"].isin(pair)
+        & interchanges["destination_code"].isin(pair)
+    ].sort_values("date", kind="stable")
+    unique_dates = pair_data["date"].drop_duplicates().reset_index(drop=True)
+    tick_dates = list(unique_dates.iloc[::4])
+    if not unique_dates.empty and unique_dates.iloc[-1] not in tick_dates:
+        tick_dates.append(unique_dates.iloc[-1])
+    annotations: list[dict[str, Any]] = []
+    if bounded_points == 0:
+        annotations.append(
+            {
+                "text": ui_text("newave_unbounded_note").format(count=len(pair_data)),
+                "xref": "paper",
+                "yref": "paper",
+                "x": 0.5,
+                "y": 0.5,
+                "showarrow": False,
+                "font": {"size": 14, "color": "#5b6b81"},
+            }
+        )
+    figure.update_layout(
+        height=430,
+        margin={"l": 30, "r": 18, "t": 52, "b": 48},
+        paper_bgcolor="#ffffff",
+        plot_bgcolor="#ffffff",
+        separators=",.",
+        hovermode="x unified",
+        dragmode="pan",
+        annotations=annotations,
+        font={"family": "Arial, sans-serif", "color": "#17383b"},
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.02,
+            "xanchor": "left",
+            "x": 0.0,
+        },
+        xaxis={
+            "tickmode": "array",
+            "tickvals": tick_dates,
+            "ticktext": [
+                sistema_month_label(value, language_code, long_year=False)
+                for value in tick_dates
+            ],
+            "showgrid": False,
+            "showline": True,
+            "linecolor": "#c7d3d5",
+            "showspikes": True,
+            "spikemode": "across",
+        },
+        yaxis={
+            "title": {"text": ui_text("newave_interchange_axis")},
+            "rangemode": "tozero",
+            "tickformat": ",.0f",
+            "gridcolor": "#e2e8ee",
+            "zeroline": True,
+            "zerolinecolor": "#c7d3d5",
+        },
+    )
+    return figure
+
+
+def sistema_pair_label(
+    pair: tuple[int, int],
+    interchanges: pd.DataFrame,
+) -> str:
+    names: dict[int, str] = {}
+    for row in interchanges.itertuples(index=False):
+        names[int(row.origin_code)] = str(row.origin)
+        names[int(row.destination_code)] = str(row.destination)
+    first, second = pair
+    return f"{names.get(first, first)} ↔ {names.get(second, second)}"
+
+
+def render_sistema_dat_analysis(
+    data: SistemaDatData,
+    *,
+    file_name: str,
+    file_size: int,
+    language_code: str,
+) -> None:
+    summary = data.monthly_summary.sort_values("date", kind="stable").reset_index(drop=True)
+    if summary.empty:
+        return
+    start = pd.Timestamp(summary["date"].iloc[0])
+    end = pd.Timestamp(summary["date"].iloc[-1])
+    peak_index = summary["global_load_mwmed"].idxmax()
+    peak_row = summary.loc[peak_index]
+    first_market = float(summary["market_sin_mwmed"].iloc[0])
+    last_market = float(summary["market_sin_mwmed"].iloc[-1])
+    market_growth = ((last_market / first_market) - 1.0) * 100.0 if first_market else 0.0
+    last_global = float(summary["global_load_mwmed"].iloc[-1])
+    mmgd_share = (
+        float(summary["mmgd_total_mwmed"].iloc[-1]) / last_global * 100.0
+        if last_global
+        else 0.0
+    )
+
+    with st.container(border=True, key="newave_analysis_panel"):
+        st.markdown(
+            f'<div class="panel-kicker">{ui_text("newave_analysis_kicker")}</div>',
+            unsafe_allow_html=True,
+        )
+        st.subheader(ui_text("newave_analysis_title"))
+        st.caption(ui_text("newave_analysis_copy"))
+        st.markdown(
+            (
+                '<div class="newave-file-meta"><span class="newave-file-dot"></span>'
+                + html.escape(
+                    ui_text("newave_loaded").format(
+                        name=file_name,
+                        size=sistema_file_size(file_size),
+                    )
+                )
+                + "</div>"
+            ),
+            unsafe_allow_html=True,
+        )
+        for warning in data.warnings:
+            st.warning(warning)
+
+        metric_columns = st.columns(5, gap="small")
+        metric_columns[0].metric(
+            ui_text("newave_period"),
+            f"{sistema_month_label(start, language_code)} – {sistema_month_label(end, language_code)}",
+        )
+        metric_columns[1].metric(ui_text("newave_months"), len(summary))
+        metric_columns[2].metric(
+            ui_text("newave_peak"),
+            f"{sistema_number(float(peak_row['global_load_mwmed']))} MWmed",
+            sistema_month_label(peak_row["date"], language_code),
+            delta_color="off",
+        )
+        metric_columns[3].metric(
+            ui_text("newave_market_growth"),
+            f"{sistema_number(market_growth, decimals=1)}%",
+        )
+        metric_columns[4].metric(
+            ui_text("newave_mmgd_share"),
+            f"{sistema_number(mmgd_share, decimals=1)}%",
+        )
+
+        overview_tab, interchange_tab, data_tab = st.tabs(
+            [
+                ui_text("newave_tab_overview"),
+                ui_text("newave_tab_interchange"),
+                ui_text("newave_tab_data"),
+            ]
+        )
+
+        with overview_tab:
+            st.subheader(ui_text("newave_figure_title"))
+            st.caption(ui_text("newave_figure_copy"))
+            st.markdown(
+                f'<div class="newave-definition">{ui_text("newave_formula_note")}</div>',
+                unsafe_allow_html=True,
+            )
+            overview_figure = build_sistema_overview_figure(summary, language_code)
+            st.plotly_chart(
+                overview_figure,
+                width="stretch",
+                key="newave_overview_figure",
+                config={
+                    "displaylogo": False,
+                    "scrollZoom": True,
+                    "toImageButtonOptions": {
+                        "format": "png",
+                        "filename": "sistema_dat_carga_geracao",
+                        "scale": 2,
+                    },
+                    "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+                },
+            )
+            footer_columns = st.columns([2.2, 1], gap="small")
+            footer_columns[0].caption(
+                ui_text("newave_visible_period").format(
+                    start=sistema_month_label(start, language_code),
+                    end=sistema_month_label(end, language_code),
+                    months=len(summary),
+                )
+            )
+            footer_columns[1].download_button(
+                ui_text("newave_download_summary"),
+                data=sistema_csv_bytes(summary),
+                file_name=(
+                    f"sistema_dat_serie_mensal_{start:%Y%m}-{end:%Y%m}.csv"
+                ),
+                mime="text/csv",
+                width="stretch",
+                key="newave_download_summary_button",
+            )
+
+        with interchange_tab:
+            st.subheader(ui_text("newave_interchange_title"))
+            st.caption(ui_text("newave_interchange_copy"))
+            if data.interchanges.empty:
+                st.info(ui_text("newave_no_interchange"))
+            else:
+                pairs = sorted(
+                    {
+                        tuple(sorted((int(row.origin_code), int(row.destination_code))))
+                        for row in data.interchanges.itertuples(index=False)
+                        if int(row.origin_code) != int(row.destination_code)
+                    }
+                )
+                pair_key = "newave_interchange_pair"
+                if st.session_state.get(pair_key) not in pairs:
+                    st.session_state.pop(pair_key, None)
+                selected_pair = st.selectbox(
+                    ui_text("newave_link_selector"),
+                    options=pairs,
+                    format_func=lambda value: sistema_pair_label(value, data.interchanges),
+                    key=pair_key,
+                )
+                interchange_figure = build_sistema_interchange_figure(
+                    data.interchanges,
+                    selected_pair,
+                    language_code,
+                )
+                st.plotly_chart(
+                    interchange_figure,
+                    width="stretch",
+                    key="newave_interchange_figure",
+                    config={
+                        "displaylogo": False,
+                        "scrollZoom": True,
+                        "toImageButtonOptions": {
+                            "format": "png",
+                            "filename": "sistema_dat_intercambios",
+                            "scale": 2,
+                        },
+                        "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+                    },
+                )
+                unbounded_count = int(data.interchanges["is_unbounded"].sum())
+                if unbounded_count:
+                    st.info(
+                        ui_text("newave_unbounded_note").format(count=unbounded_count),
+                        icon="ℹ️",
+                    )
+
+        with data_tab:
+            st.subheader(ui_text("newave_data_title"))
+            st.caption(ui_text("newave_data_copy"))
+            reference_dates = list(pd.to_datetime(summary["date"]))
+            reference_key = "newave_reference_month_value"
+            if st.session_state.get(reference_key) not in reference_dates:
+                st.session_state.pop(reference_key, None)
+            reference_date = st.selectbox(
+                ui_text("newave_reference_month"),
+                options=reference_dates,
+                index=len(reference_dates) - 1,
+                format_func=lambda value: sistema_month_label(value, language_code),
+                key=reference_key,
+            )
+
+            market_view = data.market.loc[data.market["date"].eq(reference_date), [
+                "subsystem_code",
+                "subsystem",
+                "market_mwmed",
+            ]].copy()
+            generation_view = data.nonsimulated_generation.loc[
+                data.nonsimulated_generation["date"].eq(reference_date)
+            ].pivot_table(
+                index="source",
+                columns="subsystem",
+                values="generation_mwmed",
+                aggfunc="sum",
+            ).reset_index()
+
+            table_columns = st.columns([1, 1.65], gap="large")
+            with table_columns[0]:
+                st.markdown(f"#### {ui_text('newave_market_table')}")
+                st.dataframe(
+                    market_view,
+                    hide_index=True,
+                    width="stretch",
+                    column_config={
+                        "subsystem_code": st.column_config.NumberColumn("#", format="%d"),
+                        "subsystem": st.column_config.TextColumn("Subsistema"),
+                        "market_mwmed": st.column_config.NumberColumn("MWmed", format="%.2f"),
+                    },
+                )
+            with table_columns[1]:
+                st.markdown(f"#### {ui_text('newave_generation_table')}")
+                st.dataframe(generation_view, hide_index=True, width="stretch")
+
+            if not data.deficit_costs.empty:
+                st.markdown(f"#### {ui_text('newave_deficit_table')}")
+                st.dataframe(data.deficit_costs, hide_index=True, width="stretch")
+
+            download_columns = st.columns(3, gap="small")
+            download_columns[0].download_button(
+                ui_text("newave_download_market"),
+                data=sistema_csv_bytes(data.market),
+                file_name="sistema_dat_mercado.csv",
+                mime="text/csv",
+                width="stretch",
+                key="newave_download_market_button",
+            )
+            download_columns[1].download_button(
+                ui_text("newave_download_generation"),
+                data=sistema_csv_bytes(data.nonsimulated_generation),
+                file_name="sistema_dat_geracao_nao_simulada.csv",
+                mime="text/csv",
+                width="stretch",
+                key="newave_download_generation_button",
+            )
+            download_columns[2].download_button(
+                ui_text("newave_download_interchanges"),
+                data=sistema_csv_bytes(data.interchanges),
+                file_name="sistema_dat_intercambios.csv",
+                mime="text/csv",
+                width="stretch",
+                disabled=data.interchanges.empty,
+                key="newave_download_interchanges_button",
+            )
+
+
 st.markdown(
     f"""
     <section class="hero">
@@ -2974,6 +3726,41 @@ with st.container(border=True, key="download_panel"):
             </section>
             """,
             unsafe_allow_html=True,
+        )
+
+# Entrada manual independente: cada novo sistema.dat é identificado pelo seu
+# próprio conteúdo e pode ser analisado antes mesmo de baixar as bases do ONS.
+uploaded_sistema = None
+with st.container(border=True, key="newave_upload_panel"):
+    upload_text_column, upload_control_column = st.columns([1.25, 1], gap="large")
+    with upload_text_column:
+        st.markdown(
+            f'<div class="panel-kicker">{ui_text("newave_kicker")}</div>',
+            unsafe_allow_html=True,
+        )
+        st.subheader(ui_text("newave_upload_title"))
+        st.caption(ui_text("newave_upload_copy"))
+    with upload_control_column:
+        uploaded_sistema = st.file_uploader(
+            ui_text("newave_uploader"),
+            type=["dat"],
+            help=ui_text("newave_uploader_help"),
+            label_visibility="collapsed",
+            key="newave_sistema_dat_uploader",
+        )
+
+if uploaded_sistema is not None:
+    sistema_payload = uploaded_sistema.getvalue()
+    try:
+        sistema_data = parse_sistema_dat(sistema_payload)
+    except SistemaDatError as error:
+        st.error(ui_text("newave_invalid").format(error=error))
+    else:
+        render_sistema_dat_analysis(
+            sistema_data,
+            file_name=uploaded_sistema.name,
+            file_size=len(sistema_payload),
+            language_code=language,
         )
 
 # O seletor fica exatamente entre o painel de período e o painel da tabela.

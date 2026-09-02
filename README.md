@@ -1,4 +1,4 @@
-# Dados Mensais ONS — Balanço + EAR + ENA
+# Dados Mensais ONS — Balanço + EAR + ENA + sistema.dat
 
 Aplicação Streamlit unificada para baixar e analisar três bases oficiais do ONS:
 
@@ -6,17 +6,39 @@ Aplicação Streamlit unificada para baixar e analisar três bases oficiais do O
 - **Energia Armazenada (EAR) diária por Subsistema**;
 - **Energia Natural Afluente (ENA) diária por Subsistema**.
 
+Também permite carregar qualquer nova versão do **`sistema.dat` do NEWAVE**. O
+arquivo é lido diretamente no navegador da aplicação; nenhum ano, mês ou linha
+do exemplo fica fixado no código.
+
 ## Funcionamento
 
-1. Selecione o intervalo de anos.
-2. Clique em **Baixar dados do ONS**. A aplicação processa **Balanço, EAR e ENA em paralelo**, cada base em uma pasta temporária independente. Dentro de cada base, os anos permanecem sequenciais para limitar as conexões simultâneas com o portal. Para ENA, prioriza Parquet e usa automaticamente o CSV oficial quando o Parquet do ano não existe ou falha.
-3. No seletor segmentado entre o painel de período e o painel de resultados, marque **Balanço**, **EAR**, **ENA** ou qualquer combinação entre elas.
-4. Escolha o subsistema e a discretização: **diária**, **mensal** ou **anual**.
-5. Visualize os dados em uma única tabela com vírgula decimal e baixe um único CSV no padrão regional: separador `;` entre colunas e decimal `,`. As colunas auxiliares de cobertura e status permanecem na tabela, mas não são exportadas.
-6. No **Painel de gráficos**, navegue por abas:
+1. Opcionalmente, carregue um `sistema.dat`. A análise NEWAVE aparece imediatamente, sem depender do download das bases do ONS.
+2. Selecione o intervalo de anos.
+3. Clique em **Baixar dados do ONS**. A aplicação processa **Balanço, EAR e ENA em paralelo**, cada base em uma pasta temporária independente. Dentro de cada base, os anos permanecem sequenciais para limitar as conexões simultâneas com o portal. Para ENA, prioriza Parquet e usa automaticamente o CSV oficial quando o Parquet do ano não existe ou falha.
+4. No seletor segmentado entre o painel de período e o painel de resultados, marque **Balanço**, **EAR**, **ENA** ou qualquer combinação entre elas.
+5. Escolha o subsistema e a discretização: **diária**, **mensal** ou **anual**.
+6. Visualize os dados em uma única tabela com vírgula decimal e baixe um único CSV no padrão regional: separador `;` entre colunas e decimal `,`. As colunas auxiliares de cobertura e status permanecem na tabela, mas não são exportadas.
+7. No **Painel de gráficos**, navegue por abas:
    - **Painel 1**: exploração independente de Balanço, EAR e ENA, com seleção de grandeza e exportação SVG;
    - **Painel 2**: carga e curva de pato configurável (`Carga − Solar` ou `Carga − Eólica − Solar`) e composição empilhada com ordem livre das fontes hidráulica, térmica, eólica e solar. O painel usa cores pastel e pode ser exportado em SVG.
-7. Consulte **Arquivos processados** no último painel da página.
+8. Consulte **Arquivos processados** no último painel da página.
+
+## Análise automática do sistema.dat
+
+O parser usa os campos mensais fixos definidos pelo formato do NEWAVE para
+descobrir quais meses estão realmente preenchidos em cada ano. Assim, um deck
+que comece em fevereiro, maio, setembro ou em qualquer outro mês é posicionado
+corretamente no eixo temporal. Também são descobertos os blocos e pares que
+existem naquele arquivo, sem depender dos números de linha da amostra.
+
+A interface apresenta:
+
+- mercado total do SIN e carga global, definida como `Mercado SIN + MMGD total`;
+- PCH, PCT, eólica e solar centrais, além de MMGD total, eólica MMGD e solar MMGD;
+- horizonte, quantidade de meses, pico de carga, crescimento do mercado e participação final da MMGD;
+- limites de intercâmbio nos dois sentidos, tratando `99.999` como marcador não restritivo;
+- custo de déficit, mercado e geração por subsistema no mês escolhido;
+- exportações CSV da série agregada e dos blocos extraídos.
 
 A tabela e o CSV continuam em discretização diária, mensal ou anual. O painel de gráficos também oferece a opção **horária**, aplicada exclusivamente ao Balanço, que possui série nessa resolução. Ao selecionar a visualização horária, os cartões de EAR e ENA não são exibidos.
 
@@ -32,6 +54,11 @@ A configuração dos gráficos é separada da configuração da tabela. Alterar 
 Quando o arquivo não contém uma linha própria para o SIN, a aplicação só gera a série calculada nos dias em que SE/CO, Sul, Nordeste e Norte estão simultaneamente disponíveis. Para cada subsistema, reconstrói-se a MLT implícita por `MLT_i = ENA_i / (%MLT_i / 100)`; em seguida, calcula-se `%MLT_SIN = 100 × ΣENA_i / ΣMLT_i`. A interface identifica a opção como **SIN · ENA calculada**. Se faltar qualquer um dos quatro subsistemas, não é criado valor do SIN para aquele dia.
 
 ## Execução local
+
+No Windows, dê duplo clique em `iniciar_dadosmensaisons_v10.bat`. Na primeira
+execução ele cria um ambiente isolado para esta versão e instala as dependências.
+
+Ou execute manualmente:
 
 ```bash
 pip install -r requirements.txt
@@ -50,3 +77,4 @@ streamlit run app.py
 - `unified_ons.py`: junção temporal, tabela e CSV unificados;
 - `parallel_ons.py`: orquestração concorrente e isolada das três bases, com eventos de progresso entregues à thread principal do Streamlit.
 - `power_panel.py`: preparação da curva de pato e da composição de geração exibidas no Painel 2.
+- `sistema_dat.py`: leitura estrutural, validação e agregação dinâmica do `sistema.dat` do NEWAVE.
