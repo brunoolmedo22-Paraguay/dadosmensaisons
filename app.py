@@ -242,13 +242,13 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "flow_kicker": "Fluxo da plataforma",
         "flow_title": "O que será feito?",
         "flow_lead": (
-            "Ao clicar no botão, a plataforma obterá as três bases para o período "
+            "Ao clicar no botão, a plataforma obterá as bases selecionadas para o período "
             "<strong>{start_year}–{end_year}</strong>."
         ),
-        "step_1_title": "Localizar as três bases",
-        "step_1_copy": "Consulta em paralelo os catálogos oficiais de Balanço Energético, EAR e ENA.",
+        "step_1_title": "Localizar as bases selecionadas",
+        "step_1_copy": "Consulta os catálogos oficiais de Balanço, EAR, ENA e Térmicas conforme seleção.",
         "step_2_title": "Baixar e validar",
-        "step_2_copy": "Salva temporariamente os arquivos anuais; para ENA, usa CSV quando o Parquet não existe.",
+        "step_2_copy": "Salva arquivos anuais e mensais em pastas temporárias; prioriza Parquet com fallback CSV.",
         "step_3_title": "Consolidar por período",
         "step_3_copy": "Prepara uma única tabela e um único CSV diário, mensal ou anual.",
         "unexpected_error": "Ocorreu um erro inesperado em {source}: {error}",
@@ -258,12 +258,12 @@ UI_TEXT: dict[str, dict[str, str]] = {
         ),
         "no_result": "Nenhuma das bases pôde gerar resultados para o período selecionado.",
         "processed_success": (
-            "Dados de **{start}–{end}** processados: {files} arquivo(s) anual(is), "
+            "Dados de **{start}–{end}** processados: {files} arquivo(s), "
             "{megabytes:.1f} MB."
         ),
         "source_kicker": "Conteúdo da saída",
         "source_title": "Selecione as bases que deseja visualizar",
-        "source_copy": "Marque uma, duas ou as três opções. A tabela e o CSV seguem esta seleção; o painel de gráficos abaixo possui configuração própria.",
+        "source_copy": "Marque uma ou mais bases antes de baixar. Térmicas tem tabela e gráficos próprios por usina e motivo de despacho.",
         "source_selector": "Bases de dados",
         "select_one_source": "Selecione ao menos uma base de dados.",
         "source_unavailable": "A base {source} não foi carregada. Baixe novamente o período para incluí-la.",
@@ -477,13 +477,13 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "flow_kicker": "Flujo de la plataforma",
         "flow_title": "¿Qué se hará?",
         "flow_lead": (
-            "Al pulsar el botón, la plataforma obtendrá las tres bases para el período "
+            "Al pulsar el botón, la plataforma obtendrá las bases seleccionadas para el período "
             "<strong>{start_year}–{end_year}</strong>."
         ),
-        "step_1_title": "Localizar las tres bases",
-        "step_1_copy": "Consulta en paralelo los catálogos oficiales de Balance Energético, EAR y ENA.",
+        "step_1_title": "Localizar las bases seleccionadas",
+        "step_1_copy": "Consulta los catálogos de Balance, EAR, ENA y Térmicas según la selección.",
         "step_2_title": "Descargar y validar",
-        "step_2_copy": "Guarda temporalmente los archivos anuales; para ENA, usa CSV cuando no existe Parquet.",
+        "step_2_copy": "Guarda archivos anuales y mensuales; prioriza Parquet con respaldo CSV.",
         "step_3_title": "Consolidar por período",
         "step_3_copy": "Prepara una única tabla y un único CSV diario, mensual o anual.",
         "unexpected_error": "Se produjo un error inesperado en {source}: {error}",
@@ -493,12 +493,12 @@ UI_TEXT: dict[str, dict[str, str]] = {
         ),
         "no_result": "Ninguna de las bases pudo generar resultados para el período seleccionado.",
         "processed_success": (
-            "Datos de **{start}–{end}** procesados: {files} archivo(s) anual(es), "
+            "Datos de **{start}–{end}** procesados: {files} archivo(s), "
             "{megabytes:.1f} MB."
         ),
         "source_kicker": "Contenido de la salida",
         "source_title": "Seleccione las bases que desea visualizar",
-        "source_copy": "Marque una, dos o las tres opciones. La tabla y el CSV siguen esta selección; el panel de gráficos inferior posee configuración propia.",
+        "source_copy": "Marque una o más bases antes de descargar. Térmicas tiene tabla y gráficos propios por central y motivo de despacho.",
         "source_selector": "Bases de datos",
         "select_one_source": "Seleccione al menos una base de datos.",
         "source_unavailable": "La base {source} no fue cargada. Descargue nuevamente el período para incluirla.",
@@ -3691,7 +3691,11 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-default_start = max(FIRST_AVAILABLE_YEAR, CURRENT_YEAR - 4)
+# A base térmica possui muitos arquivos mensais; sugere só os dois anos mais recentes.
+default_start = max(
+    FIRST_AVAILABLE_YEAR,
+    CURRENT_YEAR - (1 if "TERMICA" in (st.session_state.get("selected_data_sources") or []) else 4),
+)
 with st.container(border=True, key="download_panel"):
     st.markdown(
         f'<div class="panel-kicker">{ui_text("auto_kicker")}</div>',
