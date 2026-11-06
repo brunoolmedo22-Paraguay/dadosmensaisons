@@ -149,18 +149,20 @@ def query_thermal(
         """
         nrows, nplants, nhours = map(int, conn.execute(stats_sql).fetchone())
         metric = _column(metric_columns[0])
+        # Somar por usina e dividir pelo nº de horas distintas evita
+        # materializar ~2 milhões de grupos (usina, hora) na RAM.
+        numeric = _numeric(metric_columns[0])
         ranking_sql = f"""
-            WITH plant_hour AS (
-                SELECT nom_usina, date_trunc('hour', din_instante) AS instante,
-                       SUM({_numeric(metric_columns[0])}) AS mean_power
-                FROM {source}
-                WHERE {where}
-                GROUP BY 1,2
-            )
-            SELECT nom_usina, AVG(mean_power) AS period_mean
-            FROM plant_hour
-            GROUP BY 1
-            HAVING AVG(mean_power) IS NOT NULL
+            SELECT nom_usina,
+                   SUM({numeric}) /
+                   NULLIF(
+                       COUNT(DISTINCT CASE WHEN {numeric} IS NOT NULL
+                           THEN date_trunc('hour', din_instante) END), 0
+                   ) AS period_mean
+            FROM {source}
+            WHERE {where}
+            GROUP BY nom_usina
+            HAVING SUM({numeric}) IS NOT NULL
             ORDER BY period_mean DESC NULLS LAST
             LIMIT 15
         """
