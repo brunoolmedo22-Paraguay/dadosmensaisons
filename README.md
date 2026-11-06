@@ -23,6 +23,10 @@ A quarta opção **Térmicas** consulta o catálogo oficial [ONS Dados Abertos](
 - exportação integral dos dados filtrados em CSV comprimido (.csv.gz) para conjuntos grandes;
 - painel de arquivos efetivamente processados, com erros por recurso.
 
+**Otimização de memória (multi-ano):** se os arquivos têm muitos registros, o download mantém os Parquet em uma pasta temporária da sessão. DuckDB consulta a **união lógica de todos os meses** com `read_parquet(..., union_by_name=true)`, sem concatenar DataFrames em RAM. Os gráficos e médias abrangem todo o intervalo escolhido, inclusive períodos com vários anos. A tabela mostra uma prévia e oferece dois botões para gerar **a tabela completa concatenada** em um único Parquet ou CSV.GZ (todas as linhas, todas as colunas, sem cortes). Os arquivos de exportação são produzidos em disco por `COPY`, mantendo consumo de memória limitado. Também é possível preparar o CSV.GZ de um subconjunto filtrado por usina, subsistema, combustível ou data. Ao solicitar nova descarga, o cache da consulta anterior é liberado. Horas faltantes não são preenchidas artificialmente.
+
+Diagnóstico de 06/11/2026 em GitHub Actions: janeiro de 2025 tem Parquet ~623 KB / ~211,8 MB em Pandas; janeiro de 2026 tem Parquet ~870 KB / ~252,1 MB em Pandas. Esta expansão justifica o processamento em disco para consultas de vários anos.
+
 **Definição das médias:** primeiro somam-se as usinas por instante horário; depois calcula-se a média aritmética das horas observadas no período. Isso representa a potência média do grupo de usinas e evita médias indevidas por número de linhas. Dados ausentes não são preenchidos artificialmente com zeros. A média pode ficar parcial se faltarem horas. Motivos de despacho **não são aditivos entre si**, porque algumas classificações são sobrepostas. Geração programada e verificada também não devem ser somadas.
 
 Para downloads térmicos, recomenda-se começar com um ou dois anos: os arquivos são mais volumosos que EAR/ENA. A seleção de bases e a seleção das grandezas exibidas são independentes.

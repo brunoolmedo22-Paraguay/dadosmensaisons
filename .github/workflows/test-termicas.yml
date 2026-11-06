@@ -3,11 +3,13 @@ name: Testes Térmicas ONS
 on:
   push:
     branches:
+      - main
       - feat/geracao-termica-ons
+      - fix/termicas-observability-performance
   pull_request:
     paths:
       - "termicas_*.py"
-      - "tests/test_termicas.py"
+      - "tests/test_termicas*.py"
       - "app.py"
       - ".github/workflows/test-termicas.yml"
 
@@ -19,13 +21,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.14'
       - name: Instalar dependências
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest
       - name: Testar a fonte térmica
-        run: python -m pytest -q tests/test_termicas.py tests/test_termicas_ui.py
+        run: python -m pytest -q tests/test_termicas.py tests/test_termicas_ui.py tests/test_termicas_lazy.py
+      - name: E2E real 2025+2026 (somente na branch de validação)
+        if: github.ref == 'refs/heads/fix/termicas-observability-performance'
+        run: PYTHONPATH=. python -u scripts/test_live_termicas_two_years.py
       - name: Conferir catálogo e cabeçalho CSV real do ONS
         # Dependência externa: eventual indisponibilidade do ONS não quebra o CI.
         continue-on-error: true

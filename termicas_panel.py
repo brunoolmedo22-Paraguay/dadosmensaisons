@@ -33,6 +33,9 @@ def _csv_gzip(frame: pd.DataFrame) -> bytes:
 
 
 def render_thermal_panel(result: ThermalResult, language: str = "PT") -> None:
+    if result.file_paths:
+        from termicas_lazy_panel import render_lazy_thermal_panel
+        return render_lazy_thermal_panel(result, language)
     es = language == "ES"
     text = lambda pt, es_text: es_text if es else pt
     records = result.hourly

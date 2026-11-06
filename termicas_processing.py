@@ -1,7 +1,14 @@
 """Leitura, validação e agregação sem dupla contagem dos dados térmicos do ONS."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import date
+import atexit
+import shutil
+import tempfile
+
+import pyarrow as pa
+import pyarrow.parquet as pq
 from pathlib import Path
 from typing import Iterable, Literal
 
@@ -47,6 +54,124 @@ class ThermalResult:
     file_report: pd.DataFrame
     errors: list[str]
     warnings: list[str]
+    # No modo lazy, mantemos somente os Parquet no disco temporário, não
+    # milhões de linhas em st.session_state.
+    file_paths: tuple[Path, ...] = ()
+    bounds: tuple[date, date] | None = None
+    filter_options: dict[str, list[str]] = field(default_factory=dict)
+    storage_dir: Path | None = None
+    total_rows: int = 0
+
+
+def release_thermal_cache(result: ThermalResult | None) -> None:
+    """Libera arquivos de uma sessão antiga depois de um novo download."""
+    if result is not None and result.storage_dir is not None:
+        shutil.rmtree(result.storage_dir, ignore_errors=True)
+
+
+def _file_large(path: Path) -> bool:
+    if path.suffix.lower() == ".parquet":
+        return pq.read_metadata(path).num_rows > 25000
+    # CSV é menos compacto; bases reais superam normalmente este tamanho.
+    return path.stat().st_size > 2 * 1024 * 1024
+
+
+def _to_disk_inventory(files: list[tuple[str, Path]]) -> ThermalResult:
+    """Converte fallbacks CSV e mantém arquivos originais em disco.
+
+    Abre somente uma coluna por vez para inventariar valores, sem carregar o
+    conjunto inteiro. A leitura analítica será sob demanda por mês e projeção.
+    """
+    root = Path(tempfile.mkdtemp(prefix="dadosmensaisons_termicas_"))
+    atexit.register(shutil.rmtree, root, ignore_errors=True)
+    report: list[dict] = []
+    errors: list[str] = []
+    warnings: list[str] = []
+    options: dict[str, set[str]] = {
+        col: set() for col in (
+            "nom_subsistema", "id_subsistema", "nom_usina",
+            "nom_combustivel", "nom_tipocombustivel", "nom_tipopatamar"
+        )
+    }
+    paths: list[Path] = []
+    metrics: set[str] = set()
+    minimum: pd.Timestamp | None = None
+    maximum: pd.Timestamp | None = None
+    row_count = 0
+    try:
+        for name, path in files:
+            try:
+                path = Path(path)
+                target = root / (path.stem + ".parquet")
+                if path.suffix.lower() == ".csv":
+                    # Um arquivo por vez: não acumular diferentes meses na memória.
+                    frame = pd.read_csv(path, sep=";", encoding="utf-8-sig", low_memory=False)
+                    frame.columns = [str(col).strip().lower() for col in frame.columns]
+                    for col in frame.columns:
+                        if col.startswith(("val_prog", "val_verif")) or col == "val_geracaodespachada":
+                            frame[col] = pd.to_numeric(
+                                frame[col].astype("string").str.replace(",", ".", regex=False),
+                                errors="coerce",
+                            )
+                    frame.to_parquet(target, index=False)
+                    del frame
+                elif path.suffix.lower() == ".parquet":
+                    path.replace(target)
+                else:
+                    raise ValueError("Formato desconhecido.")
+                parquet = pq.ParquetFile(target)
+                names = {str(name).strip().lower(): name for name in parquet.schema_arrow.names}
+                missing = REQUIRED - names.keys()
+                if missing:
+                    raise ValueError("Colunas obrigatórias ausentes: " + ", ".join(sorted(missing)))
+                timestamp = pd.to_datetime(
+                    pq.read_table(target, columns=[names["din_instante"]])
+                    .column(0).to_pandas(), errors="coerce"
+                ).dropna()
+                if timestamp.empty:
+                    raise ValueError("Sem datas válidas.")
+                start, end = timestamp.min(), timestamp.max()
+                minimum = start if minimum is None else min(minimum, start)
+                maximum = end if maximum is None else max(maximum, end)
+                for col in options:
+                    if col in names:
+                        values = pq.read_table(target, columns=[names[col]]).column(0).unique().to_pylist()
+                        options[col].update(str(v) for v in values if v is not None)
+                for canonical, actual in names.items():
+                    typ = parquet.schema_arrow.field(actual).type
+                    # ONS publica valores numéricos também como VARCHAR em
+                    # algumas partições. Não excluir grandezas pelo tipo físico
+                    # do Parquet: DuckDB faz TRY_CAST durante a agregação.
+                    if canonical.startswith(("val_prog", "val_verif")) or canonical == "val_geracaodespachada":
+                        metrics.add(canonical)
+                report.append({
+                    "Arquivo": name, "Ano": int(start.year),
+                    "Linhas": int(parquet.metadata.num_rows),
+                    "Datas inválidas": int(parquet.metadata.num_rows - len(timestamp)),
+                    "Início": start, "Fim": end,
+                    "Formato carregado": path.suffix.lower().lstrip("."),
+                    "Modo": "Disco / leitura por mês",
+                })
+                row_count += parquet.metadata.num_rows
+                paths.append(target)
+            except (OSError, ValueError, TypeError, KeyError, ImportError, pa.ArrowException) as exc:
+                errors.append(f"{name}: {exc}")
+                target.unlink(missing_ok=True)
+        if not paths or minimum is None or maximum is None:
+            shutil.rmtree(root, ignore_errors=True)
+            return ThermalResult(pd.DataFrame(), [], pd.DataFrame(report), errors, warnings)
+        metric_columns = [m for m in PRIMARY_METRICS if m in metrics]
+        metric_columns.extend(sorted(metrics - set(metric_columns)))
+        return ThermalResult(
+            hourly=pd.DataFrame(), metric_columns=metric_columns,
+            file_report=pd.DataFrame(report), errors=errors, warnings=warnings,
+            file_paths=tuple(paths), bounds=(minimum.date(), maximum.date()),
+            filter_options={col: sorted(values) for col, values in options.items()},
+            storage_dir=root, total_rows=row_count,
+        )
+    except Exception:
+        shutil.rmtree(root, ignore_errors=True)
+        raise
 
 
 def _read(path: Path) -> pd.DataFrame:
@@ -58,6 +183,9 @@ def _read(path: Path) -> pd.DataFrame:
 
 
 def process_thermal_files(files: Iterable[tuple[str, Path]]) -> ThermalResult:
+    files = list(files)
+    if any(_file_large(Path(path)) for _, path in files):
+        return _to_disk_inventory(files)
     frames: list[pd.DataFrame] = []
     report: list[dict] = []
     errors: list[str] = []
