@@ -14,4 +14,4 @@ jobs:
           python-version: '3.12'
       - run: pip install -r requirements.txt
       - name: Medir arquivos Parquet reais e RAM
-        run: python -u scripts/probe_termicas_ons.py
+        run: PYTHONPATH=. python -u scripts/probe_termicas_ons.py
