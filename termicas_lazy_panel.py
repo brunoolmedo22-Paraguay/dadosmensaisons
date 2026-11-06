@@ -76,98 +76,22 @@ def _subset_month(
 
 
 def summarize_from_disk(
-    result: ThermalResult, start: date, end: date,
-    filters: dict[str, list[str]], granularity: str, metrics: list[str],
-    *, raw_mode: bool = False,
+    result: ThermalResult,
+    start: date,
+    end: date,
+    filters: dict[str, list[str]],
+    granularity: str,
+    metrics: list[str],
+    *,
+    raw_mode: bool = False,
+    export_raw: bool = True,
 ) -> tuple[pd.DataFrame, pd.Series, int, int, int, pd.DataFrame, bytes | None]:
-    """Calcula médias sem concatenação de meses e preserva CSV integral opcional.
-
-    Retorna (médias, ranking, nº registros, nº usinas, nº horas, amostra, export).
-    """
-    if granularity not in FREQUENCIES:
-        raise ValueError("Discretização desconhecida")
-    hourly_parts: list[pd.DataFrame] = []
-    plant_parts: list[pd.DataFrame] = []
-    row_count = 0
-    plant_set: set[str] = set()
-    previews: list[pd.DataFrame] = []
-    sample_rows = 0
-    gzip_path: Path | None = None
-    archive = None
-    try:
-        if raw_mode:
-            handle = NamedTemporaryFile(prefix="ons_termica_export_", suffix=".csv.gz", delete=False)
-            gzip_path = Path(handle.name)
-            handle.close()
-            archive = gzip.open(gzip_path, "wt", encoding="utf-8-sig", newline="")
-        first = True
-        for path in result.file_paths:
-            # Arquivos publicados por ano/mês. Evita ler meses fora do filtro,
-            # usando metadados do nome e datas do arquivo, sem abrir todas as linhas.
-            if "_DESPACHO-2_" in path.name.upper():
-                import re
-                matched = re.search(r"DESPACHO-2_(\d{4})_(\d{2})", path.name.upper())
-                if matched:
-                    y, m = map(int, matched.groups())
-                    month_start = date(y, m, 1)
-                    month_end = (
-                        date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
-                    )
-                    if month_start > end or month_end <= start:
-                        continue
-            frame = _subset_month(path, start, end, filters, metrics, raw=raw_mode)
-            if frame.empty:
-                continue
-            row_count += len(frame)
-            if "nom_usina" in frame:
-                plant_set.update(frame["nom_usina"].dropna().astype(str).unique())
-            hourly_parts.append(
-                frame.groupby("din_instante", sort=True)[metrics].sum(min_count=1)
-            )
-            if "nom_usina" in frame and metrics:
-                metric = metrics[0]
-                plant_hour = (
-                    frame.groupby(["nom_usina", "din_instante"], sort=False)[metric]
-                    .sum(min_count=1)
-                )
-                stats = plant_hour.groupby(level=0).agg(["sum", "count"])
-                plant_parts.append(stats)
-            if raw_mode:
-                if sample_rows < 5000:
-                    preview = frame.head(5000 - sample_rows)
-                    previews.append(preview)
-                    sample_rows += len(preview)
-                frame.to_csv(archive, index=False, sep=";", decimal=",", header=first,
-                             date_format="%Y-%m-%d %H:%M:%S")
-                first = False
-            del frame
-        if archive is not None:
-            archive.close()
-            archive = None
-        if not hourly_parts:
-            return (pd.DataFrame(), pd.Series(dtype=float), 0, 0, 0,
-                    pd.DataFrame(), None)
-        # A soma é feita por hora; a média temporal não depende do nº de usinas.
-        by_hour = pd.concat(hourly_parts).groupby(level=0, sort=True).sum(min_count=1)
-        hourly_count = len(by_hour)
-        average = by_hour.resample(FREQUENCIES[granularity]).mean()
-        counts = by_hour.resample(FREQUENCIES[granularity]).size()
-        average.insert(0, "Horas observadas", counts)
-        average = average.loc[counts.gt(0)].rename_axis("Período").reset_index()
-        if plant_parts:
-            plant = pd.concat(plant_parts).groupby(level=0).sum()
-            ranking = (plant["sum"] / plant["count"].where(plant["count"].gt(0))).dropna().nlargest(15).sort_values()
-        else:
-            ranking = pd.Series(dtype=float)
-        preview = pd.concat(previews, ignore_index=True) if previews else pd.DataFrame()
-        payload = gzip_path.read_bytes() if gzip_path is not None else None
-        return average, ranking, row_count, len(plant_set), hourly_count, preview, payload
-    finally:
-        if archive is not None:
-            archive.close()
-        if gzip_path is not None:
-            gzip_path.unlink(missing_ok=True)
-
+    """Uma única relação DuckDB sobre todos os Parquet, sem concatenação Pandas."""
+    from termicas_duckdb import query_thermal
+    return query_thermal(
+        result, start, end, filters, granularity, metrics,
+        raw_mode=raw_mode, export_raw=export_raw,
+    )
 
 def render_lazy_thermal_panel(result: ThermalResult, language: str = "PT") -> None:
     tr = lambda pt, es: _translated(language, pt, es)
@@ -187,7 +111,7 @@ def render_lazy_thermal_panel(result: ThermalResult, language: str = "PT") -> No
             controls = st.columns(4, gap="small")
             with controls[0]:
                 start = st.date_input(tr("Data inicial", "Fecha inicial"),
-                    value=max(minimum, maximum-timedelta(days=31)), min_value=minimum,
+                    value=minimum, min_value=minimum,
                     max_value=maximum, key="thermal_lazy_start")
             with controls[1]:
                 end = st.date_input(tr("Data final", "Fecha final"),
@@ -242,7 +166,7 @@ def render_lazy_thermal_panel(result: ThermalResult, language: str = "PT") -> No
             return
         with st.spinner(tr("Processando arquivos mensais...", "Procesando archivos mensuales...")):
             summary, ranking, nrows, nplants, nhours, preview, raw_csv = summarize_from_disk(
-                result, start, end, filters, granularity, chosen, raw_mode=view=="raw"
+                result, start, end, filters, granularity, chosen, raw_mode=view=="raw", export_raw=False
             )
         if summary.empty:
             st.info(tr("Nenhum dado encontrado no intervalo.", "Sin datos para el intervalo."))
@@ -299,9 +223,70 @@ def render_lazy_thermal_panel(result: ThermalResult, language: str = "PT") -> No
                     "Muestra de 5.000 filas en pantalla; el CSV.GZ contiene todos los registros filtrados.",
                 ))
                 st.dataframe(preview, hide_index=True, width="stretch", height=400)
-                if raw_csv is not None:
-                    st.download_button(tr("Baixar dados originais (CSV.GZ)", "Descargar datos originales (CSV.GZ)"),
-                        data=raw_csv, file_name="ons_termicas_registros_filtrados.csv.gz",
-                        mime="application/gzip", key="thermal_lazy_raw_csv")
+                from termicas_duckdb import export_thermal
+                # A exportação só ocorre quando solicitada: Streamlit não
+                # recompõe milhões de registros em cada mudança de filtro.
+                signature = repr((
+                    start.isoformat(), end.isoformat(),
+                    sorted((key, tuple(val)) for key, val in filters.items()),
+                ))
+                if st.button(
+                    tr("Preparar CSV completo do intervalo filtrado", "Preparar CSV completo del intervalo filtrado"),
+                    key="thermal_prepare_filtered_csv",
+                ):
+                    with st.spinner(tr("Gerando CSV.GZ completo...", "Generando CSV.GZ completo...")):
+                        path = export_thermal(result, "csv.gz", start=start, end=end, filters=filters)
+                    st.session_state["thermal_filtered_export"] = (signature, str(path))
+                prepared = st.session_state.get("thermal_filtered_export")
+                if prepared and prepared[0] == signature and Path(prepared[1]).is_file():
+                    path = Path(prepared[1])
+                    st.download_button(
+                        tr("Baixar todas as linhas filtradas (CSV.GZ)", "Descargar todas las filas filtradas (CSV.GZ)"),
+                        data=path.read_bytes(), file_name="ons_termicas_filtrado.csv.gz",
+                        mime="application/gzip", key="thermal_lazy_raw_csv",
+                    )
+        # Download da união integral de TODOS os meses carregados, sem
+        # restringir às datas/colunas exibidas nos gráficos.
+        from termicas_duckdb import export_thermal
+        with st.container(border=True):
+            st.subheader(tr("Tabela completa concatenada", "Tabla completa concatenada"))
+            st.caption(tr(
+                "Todos os arquivos Parquet carregados, todas as usinas, linhas e colunas "
+                "do ONS em um único arquivo. As mudanças de esquema entre anos são "
+                "unificadas por nome de coluna, preservando valores ausentes.",
+                "Todos los archivos Parquet cargados, todas las centrales, filas y "
+                "columnas del ONS en un único archivo. Los cambios de esquema se "
+                "unifican por nombre de columna, preservando los valores faltantes.",
+            ))
+            if st.button(
+                tr("Preparar Parquet completo concatenado", "Preparar Parquet completo concatenado"),
+                key="thermal_prepare_all_parquet",
+            ):
+                with st.spinner(tr("Concatenando os arquivos...", "Concatenando los archivos...")):
+                    path = export_thermal(result, "parquet")
+                st.session_state["thermal_all_parquet_path"] = str(path)
+            prepared_path = st.session_state.get("thermal_all_parquet_path")
+            if prepared_path and Path(prepared_path).is_file():
+                path = Path(prepared_path)
+                st.download_button(
+                    tr("Baixar tabela completa (Parquet)", "Descargar tabla completa (Parquet)"),
+                    data=path.read_bytes(), file_name="ons_termicas_concatenado.parquet",
+                    mime="application/octet-stream", key="thermal_all_parquet_download",
+                )
+            if st.button(
+                tr("Preparar CSV completo concatenado", "Preparar CSV completo concatenado"),
+                key="thermal_prepare_all_csv",
+            ):
+                with st.spinner(tr("Gerando CSV completo...", "Generando CSV completo...")):
+                    path = export_thermal(result, "csv.gz")
+                st.session_state["thermal_all_csv_path"] = str(path)
+            prepared_csv = st.session_state.get("thermal_all_csv_path")
+            if prepared_csv and Path(prepared_csv).is_file():
+                path = Path(prepared_csv)
+                st.download_button(
+                    tr("Baixar tabela completa (CSV.GZ)", "Descargar tabla completa (CSV.GZ)"),
+                    data=path.read_bytes(), file_name="ons_termicas_concatenado.csv.gz",
+                    mime="application/gzip", key="thermal_all_csv_download",
+                )
         with st.expander(tr("Arquivos processados", "Archivos procesados")):
             st.dataframe(result.file_report, hide_index=True, width="stretch")
