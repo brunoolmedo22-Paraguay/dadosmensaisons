@@ -10,6 +10,23 @@ Também permite carregar qualquer nova versão do **`sistema.dat` do NEWAVE**. O
 arquivo é lido diretamente no navegador da aplicação; nenhum ano, mês ou linha
 do exemplo fica fixado no código.
 
+## Nova base: Geração Térmica por Motivo de Despacho
+
+A quarta opção **Térmicas** consulta o catálogo oficial [ONS Dados Abertos](https://dados.ons.org.br/dataset/geracao-termica-despacho-2). É carregada **somente quando selecionada** antes de clicar em *Baixar dados do ONS*, pois pode conter muitos arquivos. Mantém-se independente da tabela unificada de Balanço/EAR/ENA para evitar dupla contagem.
+
+- 2013–2021: arquivo anual; 2022 em diante: arquivos mensais (meses publicados);
+- prioridade Parquet, com fallback CSV e validação de origem/conteúdo;
+- filtros de data, subsistema, usina, combustível e patamar;
+- seleção de geração programada/verificada/despachada e motivos de despacho (colunas originais);
+- curva temporal horária, média diária, média mensal ou média anual e ranking de usinas;
+- tabela de médias por período, registros originais com todas as colunas e CSV;
+- exportação integral dos dados filtrados em CSV comprimido (.csv.gz) para conjuntos grandes;
+- painel de arquivos efetivamente processados, com erros por recurso.
+
+**Definição das médias:** primeiro somam-se as usinas por instante horário; depois calcula-se a média aritmética das horas observadas no período. Isso representa a potência média do grupo de usinas e evita médias indevidas por número de linhas. Dados ausentes não são preenchidos artificialmente com zeros. A média pode ficar parcial se faltarem horas. Motivos de despacho **não são aditivos entre si**, porque algumas classificações são sobrepostas. Geração programada e verificada também não devem ser somadas.
+
+Para downloads térmicos, recomenda-se começar com um ou dois anos: os arquivos são mais volumosos que EAR/ENA. A seleção de bases e a seleção das grandezas exibidas são independentes.
+
 ## Funcionamento
 
 1. Opcionalmente, carregue um `sistema.dat`. A análise NEWAVE aparece imediatamente, sem depender do download das bases do ONS.
