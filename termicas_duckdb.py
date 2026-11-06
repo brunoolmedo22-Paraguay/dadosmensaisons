@@ -86,6 +86,16 @@ def _metrics(result: ThermalResult, metrics: list[str]) -> list[str]:
     return requested
 
 
+def _numeric(column: str) -> str:
+    identifier = _column(column)
+    # Algumas edições do Parquet ONS armazenam a grandeza como VARCHAR.
+    # Tenta a conversão direta e aceita vírgula decimal em arquivos legados.
+    return (
+        f"COALESCE(TRY_CAST({identifier} AS DOUBLE), "
+        f"TRY_CAST(REPLACE(CAST({identifier} AS VARCHAR), ',', '.') AS DOUBLE))"
+    )
+
+
 def query_thermal(
     result: ThermalResult,
     start: date,
@@ -109,7 +119,7 @@ def query_thermal(
     }[granularity]
     with _database(result) as (conn, source):
         sums = ", ".join(
-            f"SUM(TRY_CAST({_column(metric)} AS DOUBLE)) AS {_column(metric)}"
+            f"SUM({_numeric(metric)}) AS {_column(metric)}"
             for metric in metric_columns
         )
         averages = ", ".join(
@@ -142,7 +152,7 @@ def query_thermal(
         ranking_sql = f"""
             WITH plant_hour AS (
                 SELECT nom_usina, date_trunc('hour', din_instante) AS instante,
-                       SUM(TRY_CAST({metric} AS DOUBLE)) AS mean_power
+                       SUM({_numeric(metric_columns[0])}) AS mean_power
                 FROM {source}
                 WHERE {where}
                 GROUP BY 1,2
