@@ -23,6 +23,10 @@ A quarta opção **Térmicas** consulta o catálogo oficial [ONS Dados Abertos](
 - exportação integral dos dados filtrados em CSV comprimido (.csv.gz) para conjuntos grandes;
 - painel de arquivos efetivamente processados, com erros por recurso.
 
+**Otimização de memória (multi-ano):** se os arquivos têm muitos registros, o download mantém os Parquet em uma pasta temporária da sessão. A aplicação apenas inventaria o período, as usinas e as grandezas, sem concatenar os arquivos em RAM. Os gráficos e médias passam a ler as colunas necessárias mês a mês, com filtragem de período no PyArrow. A tabela mostra uma amostra dos registros originais e o CSV.GZ exporta todas as linhas filtradas. Ao solicitar outra descarga, o cache anterior é liberado. A vista anual ou mensal mantém a resolução temporal média correta, sem preencher horas faltantes artificialmente.
+
+Diagnóstico de 06/11/2026 em GitHub Actions: janeiro de 2025 tem Parquet ~623 KB / ~211,8 MB em Pandas; janeiro de 2026 tem Parquet ~870 KB / ~252,1 MB em Pandas. Esta expansão justifica o processamento em disco para consultas de vários anos.
+
 **Definição das médias:** primeiro somam-se as usinas por instante horário; depois calcula-se a média aritmética das horas observadas no período. Isso representa a potência média do grupo de usinas e evita médias indevidas por número de linhas. Dados ausentes não são preenchidos artificialmente com zeros. A média pode ficar parcial se faltarem horas. Motivos de despacho **não são aditivos entre si**, porque algumas classificações são sobrepostas. Geração programada e verificada também não devem ser somadas.
 
 Para downloads térmicos, recomenda-se começar com um ou dois anos: os arquivos são mais volumosos que EAR/ENA. A seleção de bases e a seleção das grandezas exibidas são independentes.
