@@ -3117,7 +3117,9 @@ def obtain_ons_data(
 def result_has_data(source: DataSource, result: Any) -> bool:
     if result is None:
         return False
-    if source in ("BALANCO", "TERMICA"):
+    if source == "TERMICA":
+        return bool(getattr(result, "file_paths", ())) or not result.hourly.empty
+    if source == "BALANCO":
         return not result.hourly.empty
     return not result.daily.empty
 
@@ -3810,6 +3812,10 @@ selected_sources = [
 ]
 
 if download_clicked:
+    # Remove o cache persistido de consultas anteriores da sessão.
+    previous = st.session_state.get("ons_results") or {}
+    if isinstance(previous, dict):
+        _thermal.release_thermal_cache(previous.get("TERMICA"))
     # Limpa controles térmicos ao consultar outro intervalo.
     for state_key in list(st.session_state):
         if str(state_key).startswith("thermal_"):
