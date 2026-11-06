@@ -21,6 +21,9 @@ import ear_processing as _ear
 import ena_download as _ena_download
 import ena_processing as _ena
 import ons_download as _balance_download
+import termicas_download as _thermal_download
+import termicas_processing as _thermal
+from termicas_panel import render_thermal_panel
 import unified_ons as _unified
 from parallel_ons import ProgressEvent, SourceSpec, run_parallel_sources
 from power_panel_v2 import (
@@ -105,8 +108,8 @@ GRANULARITY_SLUGS: dict[ChartGranularity, str] = {
     "yearly": "anual",
 }
 SOURCE_LABELS: dict[str, dict[DataSource, str]] = {
-    "PT": {"BALANCO": "Balanço", "EAR": "EAR", "ENA": "ENA"},
-    "ES": {"BALANCO": "Balance", "EAR": "EAR", "ENA": "ENA"},
+    "PT": {"BALANCO": "Balanço", "EAR": "EAR", "ENA": "ENA", "TERMICA": "Térmicas"},
+    "ES": {"BALANCO": "Balance", "EAR": "EAR", "ENA": "ENA", "TERMICA": "Térmicas"},
 }
 
 METRIC_LABELS_BY_LANGUAGE: dict[str, dict[str, str]] = {
@@ -239,13 +242,13 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "flow_kicker": "Fluxo da plataforma",
         "flow_title": "O que será feito?",
         "flow_lead": (
-            "Ao clicar no botão, a plataforma obterá as três bases para o período "
+            "Ao clicar no botão, a plataforma obterá as bases selecionadas para o período "
             "<strong>{start_year}–{end_year}</strong>."
         ),
-        "step_1_title": "Localizar as três bases",
-        "step_1_copy": "Consulta em paralelo os catálogos oficiais de Balanço Energético, EAR e ENA.",
+        "step_1_title": "Localizar as bases selecionadas",
+        "step_1_copy": "Consulta os catálogos oficiais de Balanço, EAR, ENA e Térmicas conforme seleção.",
         "step_2_title": "Baixar e validar",
-        "step_2_copy": "Salva temporariamente os arquivos anuais; para ENA, usa CSV quando o Parquet não existe.",
+        "step_2_copy": "Salva arquivos anuais e mensais em pastas temporárias; prioriza Parquet com fallback CSV.",
         "step_3_title": "Consolidar por período",
         "step_3_copy": "Prepara uma única tabela e um único CSV diário, mensal ou anual.",
         "unexpected_error": "Ocorreu um erro inesperado em {source}: {error}",
@@ -255,12 +258,12 @@ UI_TEXT: dict[str, dict[str, str]] = {
         ),
         "no_result": "Nenhuma das bases pôde gerar resultados para o período selecionado.",
         "processed_success": (
-            "Dados de **{start}–{end}** processados: {files} arquivo(s) anual(is), "
+            "Dados de **{start}–{end}** processados: {files} arquivo(s), "
             "{megabytes:.1f} MB."
         ),
         "source_kicker": "Conteúdo da saída",
         "source_title": "Selecione as bases que deseja visualizar",
-        "source_copy": "Marque uma, duas ou as três opções. A tabela e o CSV seguem esta seleção; o painel de gráficos abaixo possui configuração própria.",
+        "source_copy": "Marque uma ou mais bases antes de baixar. Térmicas tem tabela e gráficos próprios por usina e motivo de despacho.",
         "source_selector": "Bases de dados",
         "select_one_source": "Selecione ao menos uma base de dados.",
         "source_unavailable": "A base {source} não foi carregada. Baixe novamente o período para incluí-la.",
@@ -474,13 +477,13 @@ UI_TEXT: dict[str, dict[str, str]] = {
         "flow_kicker": "Flujo de la plataforma",
         "flow_title": "¿Qué se hará?",
         "flow_lead": (
-            "Al pulsar el botón, la plataforma obtendrá las tres bases para el período "
+            "Al pulsar el botón, la plataforma obtendrá las bases seleccionadas para el período "
             "<strong>{start_year}–{end_year}</strong>."
         ),
-        "step_1_title": "Localizar las tres bases",
-        "step_1_copy": "Consulta en paralelo los catálogos oficiales de Balance Energético, EAR y ENA.",
+        "step_1_title": "Localizar las bases seleccionadas",
+        "step_1_copy": "Consulta los catálogos de Balance, EAR, ENA y Térmicas según la selección.",
         "step_2_title": "Descargar y validar",
-        "step_2_copy": "Guarda temporalmente los archivos anuales; para ENA, usa CSV cuando no existe Parquet.",
+        "step_2_copy": "Guarda archivos anuales y mensuales; prioriza Parquet con respaldo CSV.",
         "step_3_title": "Consolidar por período",
         "step_3_copy": "Prepara una única tabla y un único CSV diario, mensual o anual.",
         "unexpected_error": "Se produjo un error inesperado en {source}: {error}",
@@ -490,12 +493,12 @@ UI_TEXT: dict[str, dict[str, str]] = {
         ),
         "no_result": "Ninguna de las bases pudo generar resultados para el período seleccionado.",
         "processed_success": (
-            "Datos de **{start}–{end}** procesados: {files} archivo(s) anual(es), "
+            "Datos de **{start}–{end}** procesados: {files} archivo(s), "
             "{megabytes:.1f} MB."
         ),
         "source_kicker": "Contenido de la salida",
         "source_title": "Seleccione las bases que desea visualizar",
-        "source_copy": "Marque una, dos o las tres opciones. La tabla y el CSV siguen esta selección; el panel de gráficos inferior posee configuración propia.",
+        "source_copy": "Marque una o más bases antes de descargar. Térmicas tiene tabla y gráficos propios por central y motivo de despacho.",
         "source_selector": "Bases de datos",
         "select_one_source": "Seleccione al menos una base de datos.",
         "source_unavailable": "La base {source} no fue cargada. Descargue nuevamente el período para incluirla.",
@@ -3011,7 +3014,8 @@ def render_empty_state() -> None:
 def obtain_ons_data(
     start_year: int,
     end_year: int,
-) -> tuple[dict[DataSource, Any], int, list[str]]:
+    selected_sources: Sequence[str],
+) -> tuple[dict[str, Any], int, list[str]]:
     years = list(range(start_year, end_year + 1))
     progress = st.progress(2, text=ui_text("progress_catalog"))
     results: dict[DataSource, Any] = {}
@@ -3041,6 +3045,16 @@ def obtain_ons_data(
             folder_name="ena",
         ),
     )
+    # Base térmica: arquivos anuais até 2021, mensais de 2022 em diante.
+    source_specs = (*source_specs, SourceSpec(
+        key="TERMICA",
+        label=SOURCE_LABELS[language]["TERMICA"],
+        downloader=_thermal_download.download_thermal_years,
+        processor=_thermal.process_thermal_files,
+        folder_name="termicas",
+    ))
+    # Carregamento sob demanda, para não tornar os downloads existentes mais lentos.
+    source_specs = tuple(spec for spec in source_specs if spec.key in selected_sources)
     total_steps = len(years) * len(source_specs)
     completed_by_source = {spec.key: 0 for spec in source_specs}
     validation_started: set[str] = set()
@@ -3103,13 +3117,13 @@ def obtain_ons_data(
 def result_has_data(source: DataSource, result: Any) -> bool:
     if result is None:
         return False
-    if source == "BALANCO":
+    if source in ("BALANCO", "TERMICA"):
         return not result.hourly.empty
     return not result.daily.empty
 
 
 def available_sources(results: dict[DataSource, Any]) -> list[DataSource]:
-    return [source for source in _unified.DATA_SOURCES if result_has_data(source, results.get(source))]
+    return [source for source in (*_unified.DATA_SOURCES, "TERMICA") if result_has_data(source, results.get(source))]
 
 
 def unified_subsystems(
@@ -3677,7 +3691,11 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-default_start = max(FIRST_AVAILABLE_YEAR, CURRENT_YEAR - 4)
+# A base térmica possui muitos arquivos mensais; sugere só os dois anos mais recentes.
+default_start = max(
+    FIRST_AVAILABLE_YEAR,
+    CURRENT_YEAR - (1 if "TERMICA" in (st.session_state.get("selected_data_sources") or []) else 4),
+)
 with st.container(border=True, key="download_panel"):
     st.markdown(
         f'<div class="panel-kicker">{ui_text("auto_kicker")}</div>',
@@ -3778,7 +3796,7 @@ with st.container(border=True, key="source_selection_panel"):
     with source_control_column:
         st.segmented_control(
             ui_text("source_selector"),
-            options=list(_unified.DATA_SOURCES),
+            options=[*_unified.DATA_SOURCES, "TERMICA"],
             selection_mode="multi",
             key="selected_data_sources",
             format_func=lambda value: SOURCE_LABELS[language][value],
@@ -3787,11 +3805,15 @@ with st.container(border=True, key="source_selection_panel"):
 
 selected_sources = [
     source
-    for source in _unified.DATA_SOURCES
+    for source in (*_unified.DATA_SOURCES, "TERMICA")
     if source in (st.session_state.get("selected_data_sources") or [])
 ]
 
 if download_clicked:
+    # Limpa controles térmicos ao consultar outro intervalo.
+    for state_key in list(st.session_state):
+        if str(state_key).startswith("thermal_"):
+            st.session_state.pop(state_key, None)
     for state_key in [
         "ons_results",
         "ons_period",
@@ -3835,6 +3857,7 @@ if download_clicked:
     downloaded_results, downloaded_bytes, source_errors = obtain_ons_data(
         start_year=start_year,
         end_year=end_year,
+        selected_sources=selected_sources,
     )
     st.session_state["ons_results"] = downloaded_results
     st.session_state["ons_period"] = (start_year, end_year)
@@ -3898,6 +3921,13 @@ st.success(
         megabytes=downloaded_megabytes,
     )
 )
+
+# Térmicas é independente das séries agregadas por subsistema.
+if "TERMICA" in usable_sources:
+    render_thermal_panel(results["TERMICA"], language=language)
+usable_sources = [source for source in usable_sources if source in _unified.DATA_SOURCES]
+if not usable_sources:
+    st.stop()
 
 subsystem_items = unified_subsystems(results, usable_sources)
 if not subsystem_items:
