@@ -96,3 +96,43 @@ def test_syntax_all_sources():
     root=Path(__file__).resolve().parents[1]
     for name in ("termicas_processing.py","termicas_panel.py","termicas_lazy_panel.py","app.py"):
         ast.parse((root/name).read_text("utf-8"))
+
+
+def test_duckdb_concatenated_parquet_and_csv_preserve_all_rows_and_union_schema(tmp_path):
+    import duckdb
+    import gzip
+    from io import BytesIO
+    from termicas_duckdb import export_thermal
+    sources = []
+    for month in (1, 2):
+        hours = pd.date_range(f"2026-{month:02}-01", periods=720, freq="h")
+        frame = pd.DataFrame({
+            "din_instante": hours.repeat(40),
+            "nom_usina": [f"T{i:02d}" for _ in range(len(hours)) for i in range(40)],
+            "id_subsistema": "SE", "nom_subsistema": "Sudeste",
+            "val_proggeracao": 10.0, "val_verifgeracao": 9.0,
+        })
+        if month == 2:
+            frame["campo_novo_ons"] = "NOVO"
+        path=tmp_path/f"GERACAO_TERMICA_DESPACHO-2_2026_{month:02}.parquet"
+        frame.to_parquet(path, index=False)
+        sources.append((path.name,path))
+    result = process_thermal_files(sources)
+    try:
+        assert len(result.file_paths)==2 and not result.errors, result.errors
+        parquet = export_thermal(result,"parquet")
+        with duckdb.connect() as conn:
+            rows, nonnull = conn.execute(
+                "SELECT COUNT(*), COUNT(campo_novo_ons) FROM read_parquet(?)",
+                [str(parquet)],
+            ).fetchone()
+        assert rows == 2*720*40
+        assert nonnull == 720*40
+        csv = export_thermal(result,"csv.gz")
+        with gzip.open(csv, "rt", encoding="utf-8-sig") as inp:
+            head=inp.readline().strip()
+            line_count=sum(1 for _ in inp)
+        assert "campo_novo_ons" in head
+        assert line_count == rows
+    finally:
+        release_thermal_cache(result)
