@@ -148,21 +148,17 @@ def query_thermal(
             FROM {source} WHERE {where}
         """
         nrows, nplants, nhours = map(int, conn.execute(stats_sql).fetchone())
-        metric = _column(metric_columns[0])
-        # Somar por usina e dividir pelo nº de horas distintas evita
-        # materializar ~2 milhões de grupos (usina, hora) na RAM.
+        # Ranking visual: média por registro de cada usina, sem COUNT(DISTINCT)
+        # de milhões de chaves (usina, hora), que causava OOM em 256 MB.
+        # A série temporal e suas médias permanecem agregadas corretamente
+        # por hora sobre todas as usinas, de forma independente do ranking.
         numeric = _numeric(metric_columns[0])
         ranking_sql = f"""
-            SELECT nom_usina,
-                   SUM({numeric}) /
-                   NULLIF(
-                       COUNT(DISTINCT CASE WHEN {numeric} IS NOT NULL
-                           THEN date_trunc('hour', din_instante) END), 0
-                   ) AS period_mean
+            SELECT nom_usina, AVG({numeric}) AS period_mean
             FROM {source}
             WHERE {where}
             GROUP BY nom_usina
-            HAVING SUM({numeric}) IS NOT NULL
+            HAVING AVG({numeric}) IS NOT NULL
             ORDER BY period_mean DESC NULLS LAST
             LIMIT 15
         """
