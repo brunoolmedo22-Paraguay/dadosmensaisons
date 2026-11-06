@@ -26,3 +26,22 @@ jobs:
           python -m pip install -r requirements.txt pytest
       - name: Testar a fonte térmica
         run: python -m pytest -q tests/test_termicas.py
+      - name: Conferir catálogo e cabeçalho CSV real do ONS
+        # Dependência externa: eventual indisponibilidade do ONS não quebra o CI.
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import requests
+          from termicas_download import discover_resources
+          resources = discover_resources()
+          assert (2026, 1) in resources, "Janeiro/2026 não encontrado no catálogo"
+          assert "csv" in resources[(2026, 1)], "CSV de janeiro/2026 não encontrado"
+          url = resources[(2026, 1)]["csv"]
+          with requests.get(url, timeout=(15, 50), stream=True) as response:
+              response.raise_for_status()
+              header = next(response.iter_lines()).decode("utf-8-sig")
+          print("Cabeçalho oficial:", header[:600])
+          assert "din_instante" in header and "val_verifgeracao" in header
+          assert ";" in header, "Separador CSV inesperado"
+          print("Descoberta de recursos e CSV oficial: OK")
+          PY
