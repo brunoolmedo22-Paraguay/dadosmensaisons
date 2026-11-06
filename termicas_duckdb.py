@@ -44,8 +44,11 @@ def _database(result: ThermalResult) -> Iterator[tuple[duckdb.DuckDBPyConnection
         raise ValueError("Arquivos da consulta anterior não estão mais disponíveis")
     connection = duckdb.connect(database=":memory:")
     try:
-        connection.execute("SET memory_limit='256MB'")
-        connection.execute("SET threads=2")
+        # DuckDB faz spill para o diretório temporário. Evita múltiplas
+        # buffers simultâneas e cópias de blocos gigantes na exportação.
+        connection.execute("SET memory_limit='384MB'")
+        connection.execute("SET threads=1")
+        connection.execute("SET preserve_insertion_order=false")
         connection.execute("SET temp_directory=" + _lit(result.storage_dir / "duckdb_tmp"))
         # A pasta de sessão contém apenas arquivos Parquet da consulta.
         source = (
@@ -211,7 +214,9 @@ def export_thermal(
         query = f"SELECT * FROM {source} WHERE {where}"
         output.unlink(missing_ok=True)
         if file_format == "parquet":
-            options = "FORMAT PARQUET, COMPRESSION ZSTD"
+            # Row groups pequenos impedem que COPY retenha ~centenas de MB
+            # em buffers de escrita para as ~47 colunas da base do ONS.
+            options = "FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 8192"
         elif file_format == "csv.gz":
             options = "FORMAT CSV, HEADER TRUE, DELIMITER ';', COMPRESSION GZIP"
         else:
