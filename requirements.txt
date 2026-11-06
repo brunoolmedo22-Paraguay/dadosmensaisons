@@ -5,3 +5,6 @@ xlrd==2.0.2
 pyarrow==24.0.0
 requests==2.34.2
 plotly==6.5.2
+# Compatibilidade do middleware GZip de Streamlit 1.60 no Community Cloud.
+# Starlette >=1.5 altera o fluxo ASGI de arquivos estáticos e causa HTTP 500.
+starlette==1.4.1
