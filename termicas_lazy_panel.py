@@ -38,7 +38,14 @@ def _subset_month(
     ]
     requested = identity + list(filters) + metrics
     columns = None if raw else _available(path, requested)
-    frame = pd.read_parquet(path, columns=columns)
+    # Filtro temporal é aplicado pelo PyArrow antes de expandir a tabela em Pandas.
+    frame = pd.read_parquet(
+        path, columns=columns,
+        filters=[
+            ("din_instante", ">=", pd.Timestamp(start)),
+            ("din_instante", "<", pd.Timestamp(end) + pd.Timedelta(days=1)),
+        ],
+    )
     frame.columns = [str(column).strip().lower() for column in frame.columns]
     if "din_instante" not in frame:
         raise ValueError(f"{path.name}: coluna de data ausente")
@@ -47,8 +54,11 @@ def _subset_month(
         pd.Timestamp(start), pd.Timestamp(end) + pd.Timedelta(days=1), inclusive="left",
     )
     for column, values in filters.items():
-        if values and column in frame:
-            mask &= frame[column].astype(str).isin(values)
+        if values:
+            if column not in frame:
+                mask &= False
+            else:
+                mask &= frame[column].astype(str).isin(values)
     frame = frame.loc[mask].copy()
     del mask
     if frame.empty:
