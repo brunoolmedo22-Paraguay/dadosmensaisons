@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from io import BytesIO
+import gzip
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -17,6 +19,17 @@ def _label(metric: str, language: str) -> str:
 
 def _csv(frame: pd.DataFrame) -> bytes:
     return frame.to_csv(index=False, sep=";", decimal=",", date_format="%Y-%m-%d %H:%M:%S").encode("utf-8-sig")
+
+
+def _csv_gzip(frame: pd.DataFrame) -> bytes:
+    """Exportação integral comprimida, sem criar uma cópia CSV gigante em RAM."""
+    buffer = BytesIO()
+    with gzip.open(buffer, mode="wt", encoding="utf-8-sig", newline="") as output:
+        frame.to_csv(
+            output, index=False, sep=";", decimal=",",
+            date_format="%Y-%m-%d %H:%M:%S",
+        )
+    return buffer.getvalue()
 
 
 def render_thermal_panel(result: ThermalResult, language: str = "PT") -> None:
@@ -230,9 +243,16 @@ def render_thermal_panel(result: ThermalResult, language: str = "PT") -> None:
                         mime="text/csv", key="thermal_raw_csv",
                     )
                 else:
-                    st.warning(text(
-                        "Mais de 250 mil linhas. Reduza o intervalo ou filtre usinas para exportar sem sobrecarregar a sessão.",
-                        "Más de 250 mil filas. Reduzca el intervalo o filtre centrales para exportar.",
+                    st.download_button(
+                        text("Baixar dados originais completos (CSV.GZ)", "Descargar datos originales completos (CSV.GZ)"),
+                        data=_csv_gzip(base),
+                        file_name="ons_termicas_registros_filtrados.csv.gz",
+                        mime="application/gzip",
+                        key="thermal_raw_gzip",
+                    )
+                    st.caption(text(
+                        "Arquivo CSV comprimido (gzip), sem limite de 250 mil linhas.",
+                        "Archivo CSV comprimido (gzip), sin límite de 250 mil filas.",
                     ))
 
         if not result.file_report.empty:
