@@ -139,9 +139,10 @@ def _to_disk_inventory(files: list[tuple[str, Path]]) -> ThermalResult:
                         options[col].update(str(v) for v in values if v is not None)
                 for canonical, actual in names.items():
                     typ = parquet.schema_arrow.field(actual).type
-                    if (canonical.startswith(("val_prog", "val_verif")) or canonical == "val_geracaodespachada") and (
-                        pa.types.is_integer(typ) or pa.types.is_floating(typ) or pa.types.is_decimal(typ)
-                    ):
+                    # ONS publica valores numéricos também como VARCHAR em
+                    # algumas partições. Não excluir grandezas pelo tipo físico
+                    # do Parquet: DuckDB faz TRY_CAST durante a agregação.
+                    if canonical.startswith(("val_prog", "val_verif")) or canonical == "val_geracaodespachada":
                         metrics.add(canonical)
                 report.append({
                     "Arquivo": name, "Ano": int(start.year),
