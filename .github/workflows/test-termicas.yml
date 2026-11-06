@@ -30,7 +30,7 @@ jobs:
         run: python -m pytest -q tests/test_termicas.py tests/test_termicas_ui.py tests/test_termicas_lazy.py
       - name: E2E real 2025+2026 (somente na branch de validação)
         if: github.ref == 'refs/heads/fix/termicas-observability-performance'
-        run: python -u scripts/test_live_termicas_two_years.py
+        run: PYTHONPATH=. python -u scripts/test_live_termicas_two_years.py
       - name: Conferir catálogo e cabeçalho CSV real do ONS
         # Dependência externa: eventual indisponibilidade do ONS não quebra o CI.
         continue-on-error: true
